@@ -1,0 +1,46 @@
+# Core Framework & Server
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+email-validator>=2.0.0
+chromadb==0.5.11
+
+# Database & Migrations
+sqlalchemy>=2.0.28
+alembic>=1.13.1
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.9
+
+# Security & Authentication
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.1
+pyjwt[crypto]>=2.8.0
+cryptography>=42.0.0
+
+# LLM, Agentic AI & RAG
+# Note: sentence-transformers depends on PyTorch (torch>=2.2). In Docker, CPU-only PyTorch
+# (torch==2.2.2 via https://download.pytorch.org/whl/cpu) is pre-installed to optimize container
+# size and eliminate cross-platform SHA256 wheel hash mismatches.
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-community>=0.2.0
+langchain-google-genai>=1.0.0
+google-genai>=0.1.1
+google-generativeai>=0.5.0
+langgraph>=0.1.0
+sentence-transformers>=2.6.0
+pymupdf>=1.24.0
+reportlab>=4.1.0
+
+# Utilities & Networking
+httpx>=0.27.0
+python-dotenv>=1.0.1
+python-multipart>=0.0.9
+pillow>=9.5.0
+
+# Testing
+pytest>=8.1.0
+pytest-asyncio>=0.23.5
+pytest-cov>=4.1.0
+

@@ -1,0 +1,33 @@
+# Dependencies and packages
+node_modules/
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build and test outputs
+dist/
+build/
+.pytest_cache/
+.coverage
+test_runner.db
+*.db
+*.sqlite
+
+# Git and IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Local data volumes
+backend/data/uploads/*
+!backend/data/uploads/.gitkeep
+backend/data/chroma/*
+!backend/data/chroma/.gitkeep
+
