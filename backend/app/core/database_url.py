@@ -1,7 +1,7 @@
 import os
 import re
 import urllib.parse
-from typing import Optional
+from typing import Any, Dict, Optional
 from sqlalchemy.engine.url import make_url, URL
 
 
@@ -25,17 +25,108 @@ def is_unresolved_template(val: Optional[str]) -> bool:
     """
     Checks if a string is an unresolved template variable from Railway, Docker, or shell.
     Examples: '${{Postgres.DATABASE_URL}}', '${{ Postgres.DATABASE_URL }}', '${DATABASE_URL}'.
+    Also catches placeholders like 'none', 'null', 'undefined', or empty values.
     """
     if not val:
         return False
     v = str(val).strip().strip("'\"")
+    if not v:
+        return False
     if v.startswith("${{") and v.endswith("}}"):
         return True
     if v.startswith("${") and v.endswith("}"):
         return True
+    if "{{" in v and "}}" in v:
+        return True
+    if v.lower() in ("none", "null", "undefined", "<empty>"):
+        return True
     if v.startswith("$") and not any(v.startswith(s) for s in ("sqlite", "postgres")):
         return True
     return False
+
+
+def get_safe_database_diagnostics(url: Optional[str]) -> Dict[str, Any]:
+    """
+    Extracts safe diagnostic metrics from a database URL string without exposing
+    any sensitive information (no usernames, passwords, tokens, or full URLs).
+    Returns only structural metrics:
+    - is_configured: bool
+    - is_template: bool
+    - scheme: str
+    - host_present: bool
+    - port_present: bool
+    - database_present: bool
+    - is_valid: bool
+    """
+    if url is None or not str(url).strip():
+        return {
+            "is_configured": False,
+            "is_template": False,
+            "scheme": "<empty>",
+            "host_present": False,
+            "port_present": False,
+            "database_present": False,
+            "is_valid": False,
+        }
+
+    clean = str(url).strip()
+    while (clean.startswith('"') and clean.endswith('"')) or (clean.startswith("'") and clean.endswith("'")):
+        clean = clean[1:-1].strip()
+
+    is_tmpl = is_unresolved_template(clean)
+    scheme = "<none>"
+    host_present = False
+    port_present = False
+    database_present = False
+    is_valid = False
+
+    try:
+        parsed = make_url(clean)
+        scheme = parsed.drivername or "<none>"
+        host_present = bool(parsed.host)
+        port_present = bool(parsed.port)
+        database_present = bool(parsed.database)
+        is_valid = bool(parsed.drivername and (parsed.host or parsed.database))
+    except Exception:
+        # Fallback inspection if make_url fails
+        if "://" in clean:
+            scheme = clean.split("://", 1)[0].lower()
+            rest = clean.split("://", 1)[1]
+            if "@" in rest:
+                hostpart = rest.rsplit("@", 1)[1]
+                host_present = bool(hostpart.split("/")[0])
+                database_present = "/" in hostpart and bool(hostpart.split("/")[1].split("?")[0])
+
+    return {
+        "is_configured": bool(clean),
+        "is_template": is_tmpl,
+        "scheme": scheme,
+        "host_present": host_present,
+        "port_present": port_present,
+        "database_present": database_present,
+        "is_valid": is_valid,
+    }
+
+
+def log_safe_database_diagnostics(url: Optional[str], label: str = "DATABASE_URL") -> None:
+    """
+    Logs safe diagnostic information about a database URL without exposing credentials.
+    """
+    import logging
+    diag_logger = logging.getLogger("edunex.core.database")
+    diag = get_safe_database_diagnostics(url)
+    diag_logger.info(
+        "[DB-DIAGNOSTIC] %s: configured=%s, scheme='%s', host_present=%s, "
+        "port_present=%s, db_present=%s, is_railway_template=%s, is_valid_sqlalchemy_url=%s",
+        label,
+        diag["is_configured"],
+        diag["scheme"],
+        diag["host_present"],
+        diag["port_present"],
+        diag["database_present"],
+        diag["is_template"],
+        diag["is_valid"],
+    )
 
 
 def resolve_fallback_from_env() -> Optional[str]:
@@ -50,14 +141,18 @@ def resolve_fallback_from_env() -> Optional[str]:
         "POSTGRES_URL",
         "POSTGRES_PRIVATE_URL",
         "POSTGRES_PUBLIC_URL",
+        "POSTGRES_DATABASE_URL",
+        "POSTGRESQL_URL",
     ]
     for var in candidates:
         val = os.getenv(var)
         if val and not is_unresolved_template(val) and val.strip():
-            return val.strip().strip("'\"")
+            clean_val = val.strip().strip("'\"")
+            if any(clean_val.startswith(p) for p in ("postgres://", "postgresql://", "postgresql+asyncpg://")):
+                return clean_val
 
     # 2. Reconstruct from individual PG* or POSTGRES_* environment variables (standard Railway PostgreSQL service)
-    pghost = os.getenv("PGHOST") or os.getenv("POSTGRES_HOST")
+    pghost = os.getenv("PGHOST") or os.getenv("POSTGRES_HOST") or os.getenv("POSTGRESQL_HOST") or os.getenv("DB_HOST")
     if pghost and not is_unresolved_template(pghost):
         pgport = os.getenv("PGPORT") or os.getenv("POSTGRES_PORT") or "5432"
         pguser = os.getenv("PGUSER") or os.getenv("POSTGRES_USER") or "postgres"
@@ -89,7 +184,9 @@ def normalize_database_url(
     - Never corrupts credentials or replaces strings blindly.
     """
     raw_val = str(url).strip() if url is not None else ""
-    clean_url = raw_val.strip("'\"")
+    clean_url = raw_val
+    while (clean_url.startswith('"') and clean_url.endswith('"')) or (clean_url.startswith("'") and clean_url.endswith("'")):
+        clean_url = clean_url[1:-1].strip()
 
     if not clean_url:
         if allow_fallback:

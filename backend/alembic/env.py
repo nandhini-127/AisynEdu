@@ -10,6 +10,11 @@ from alembic import context
 # Import project settings and Base metadata
 from app.core.config import settings
 from app.core.database import Base
+from app.core.database_url import (
+    normalize_async_database_url,
+    normalize_sync_database_url,
+    log_safe_database_diagnostics,
+)
 import app.models  # Ensure all model tables are registered in Base.metadata
 
 config = context.config
@@ -22,7 +27,8 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = settings.SYNC_DATABASE_URL
+    url = normalize_sync_database_url(settings.SYNC_DATABASE_URL or settings.DATABASE_URL)
+    log_safe_database_diagnostics(url, label="Alembic:offline")
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -44,7 +50,9 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     """Run migrations in 'online' mode with async engine."""
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = settings.DATABASE_URL
+    async_url = normalize_async_database_url(settings.DATABASE_URL or settings.SYNC_DATABASE_URL)
+    log_safe_database_diagnostics(async_url, label="Alembic:online_async")
+    configuration["sqlalchemy.url"] = async_url
 
     connectable = async_engine_from_config(
         configuration,

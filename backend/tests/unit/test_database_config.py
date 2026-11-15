@@ -161,3 +161,78 @@ def test_railway_production_configuration():
     railway_url = "postgres://postgres:AbCdEf123456@postgres.railway.internal:5432/railway"
     expected = "postgresql+asyncpg://postgres:AbCdEf123456@postgres.railway.internal:5432/railway"
     assert normalize_async_database_url(railway_url) == expected
+
+
+def test_safe_database_diagnostics():
+    """Verify safe diagnostics report structure without leaking secrets."""
+    from app.core.database_url import get_safe_database_diagnostics
+
+    secret_url = "postgresql+asyncpg://secret_user:super_secret_password_999@postgres.railway.internal:5432/railway_prod"
+    diag = get_safe_database_diagnostics(secret_url)
+
+    assert diag["is_configured"] is True
+    assert diag["scheme"] == "postgresql+asyncpg"
+    assert diag["host_present"] is True
+    assert diag["port_present"] is True
+    assert diag["database_present"] is True
+    assert diag["is_valid"] is True
+    assert diag["is_template"] is False
+
+    # String representation must never contain password
+    diag_str = str(diag)
+    assert "super_secret_password_999" not in diag_str
+    assert "secret_user" not in diag_str
+
+    # Test template diagnostic
+    tmpl_diag = get_safe_database_diagnostics("${{Postgres.DATABASE_URL}}")
+    assert tmpl_diag["is_template"] is True
+
+
+def test_production_settings_loading_with_unresolved_railway_template(monkeypatch):
+    """
+    REGRESSION TEST:
+    Reproduces exact Railway production path where DATABASE_URL=${{Postgres.DATABASE_URL}}
+    and Railway provides standard PG* fallback variables.
+    """
+    from app.core.config import Settings
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    monkeypatch.setenv("DATABASE_URL", "${{Postgres.DATABASE_URL}}")
+    monkeypatch.setenv("SYNC_DATABASE_URL", "${{Postgres.DATABASE_URL}}")
+    monkeypatch.setenv("PGHOST", "postgres.railway.internal")
+    monkeypatch.setenv("PGPORT", "5432")
+    monkeypatch.setenv("PGUSER", "postgres")
+    monkeypatch.setenv("PGPASSWORD", "railway_secret_pwd")
+    monkeypatch.setenv("PGDATABASE", "railway")
+
+    # Load Pydantic Settings
+    test_settings = Settings()
+    expected_async = "postgresql+asyncpg://postgres:railway_secret_pwd@postgres.railway.internal:5432/railway"
+    expected_sync = "postgresql://postgres:railway_secret_pwd@postgres.railway.internal:5432/railway"
+
+    assert test_settings.DATABASE_URL == expected_async
+    assert test_settings.SYNC_DATABASE_URL == expected_sync
+
+    # Test create_async_engine succeeds without ArgumentError
+    engine = create_async_engine(test_settings.DATABASE_URL)
+    assert engine.url.drivername == "postgresql+asyncpg"
+    assert engine.url.host == "postgres.railway.internal"
+    assert engine.url.database == "railway"
+
+
+def test_production_settings_loading_with_quoted_railway_url(monkeypatch):
+    """
+    REGRESSION TEST:
+    Reproduces Railway production path where DATABASE_URL is wrapped in quotes.
+    """
+    from app.core.config import Settings
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    monkeypatch.setenv("DATABASE_URL", '"postgres://postgres:pwd123@postgres.railway.internal:5432/railway"')
+    test_settings = Settings()
+    expected = "postgresql+asyncpg://postgres:pwd123@postgres.railway.internal:5432/railway"
+    assert test_settings.DATABASE_URL == expected
+
+    engine = create_async_engine(test_settings.DATABASE_URL)
+    assert engine.url.drivername == "postgresql+asyncpg"
+    assert engine.url.host == "postgres.railway.internal"

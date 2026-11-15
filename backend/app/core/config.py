@@ -1,5 +1,5 @@
 import sys
-from typing import List, Union
+from typing import Any, List, Optional, Union
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -74,26 +74,22 @@ class Settings(BaseSettings):
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
-    def assemble_database_url(cls, v: str) -> str:
-        if isinstance(v, str):
-            v = v.strip()
-            # Normalize Railway/Heroku/Supabase postgres:// URL to asyncpg format
-            if v.startswith("postgres://"):
-                return v.replace("postgres://", "postgresql+asyncpg://", 1)
-            elif v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
-                return v.replace("postgresql://", "postgresql+asyncpg://", 1)
-        return v
+    def assemble_database_url(cls, v: Any) -> str:
+        from app.core.database_url import normalize_async_database_url, log_safe_database_diagnostics
+        log_safe_database_diagnostics(v, label="Settings.DATABASE_URL (incoming)")
+        normalized = normalize_async_database_url(str(v) if v is not None else None)
+        log_safe_database_diagnostics(normalized, label="Settings.DATABASE_URL (normalized)")
+        return normalized
 
     @field_validator("SYNC_DATABASE_URL", mode="before")
     @classmethod
-    def assemble_sync_database_url(cls, v: str) -> str:
-        if isinstance(v, str):
-            v = v.strip()
-            if v.startswith("postgres://"):
-                return v.replace("postgres://", "postgresql://", 1)
-            elif v.startswith("postgresql+asyncpg://"):
-                return v.replace("postgresql+asyncpg://", "postgresql://", 1)
-        return v
+    def assemble_sync_database_url(cls, v: Any, info) -> str:
+        from app.core.database_url import normalize_sync_database_url, log_safe_database_diagnostics
+        target = v if (v is not None and str(v).strip()) else info.data.get("DATABASE_URL")
+        log_safe_database_diagnostics(target, label="Settings.SYNC_DATABASE_URL (incoming)")
+        normalized = normalize_sync_database_url(str(target) if target is not None else None)
+        log_safe_database_diagnostics(normalized, label="Settings.SYNC_DATABASE_URL (normalized)")
+        return normalized
 
     # LLM Settings
     GOOGLE_API_KEY: str = ""
