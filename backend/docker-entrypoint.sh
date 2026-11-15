@@ -8,9 +8,10 @@ echo "========================================================"
 # Check and execute Alembic database migrations if DATABASE_URL is set
 if [ -n "$DATABASE_URL" ]; then
     echo "Applying database migrations via Alembic..."
-    alembic upgrade head || {
-        echo "WARNING: Database migration encountered an issue. Starting application anyway..."
-    }
+    if ! alembic upgrade head; then
+        echo "ERROR: Database migration failed. Aborting container startup to protect data integrity." >&2
+        exit 1
+    fi
     echo "Database migrations applied successfully."
 else
     echo "DATABASE_URL not set; skipping automated Alembic migrations."
