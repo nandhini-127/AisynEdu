@@ -8,6 +8,10 @@ from app.core.config import settings
 logger = logging.getLogger("edunex.rag.vectorstore")
 
 
+class ChromaConnectionError(RuntimeError):
+    """Raised when the remote ChromaDB server cannot be reached."""
+
+
 class ChromaVectorStore:
     """
     Manages vector storage and similarity search in ChromaDB.
@@ -17,48 +21,96 @@ class ChromaVectorStore:
     COLLECTION_NAME = "edunex_document_chunks"
 
     def __init__(self, persist_dir: Optional[str] = None):
-        self.persist_dir = persist_dir or settings.CHROMA_PERSIST_DIR
-        try:
-            os.makedirs(self.persist_dir, exist_ok=True)
-        except (PermissionError, OSError):
-            import tempfile
-            self.persist_dir = os.path.join(tempfile.gettempdir(), "edunex_chroma")
-            os.makedirs(self.persist_dir, exist_ok=True)
+        # An explicit persist_dir always selects the embedded client (tests, scripts).
+        self._use_http = persist_dir is None and self._resolve_use_http()
+        # HTTP mode never touches a local directory.
+        self.persist_dir: Optional[str] = None
+        if not self._use_http:
+            self.persist_dir = self._ensure_dir(persist_dir or settings.CHROMA_PERSIST_DIR)
         self._client = None
         self._collection = None
 
+    @staticmethod
+    def _ensure_dir(path: str) -> str:
+        """Creates `path`, falling back to a temp directory if it is not writable."""
+        try:
+            os.makedirs(path, exist_ok=True)
+            return path
+        except (PermissionError, OSError):
+            import tempfile
+            fallback = os.path.join(tempfile.gettempdir(), "edunex_chroma")
+            os.makedirs(fallback, exist_ok=True)
+            return fallback
+
+    @staticmethod
+    def _resolve_use_http() -> bool:
+        """
+        CHROMA_MODE: "http" | "persistent" | "auto" (default).
+        "auto" uses the remote server on Railway (RAILWAY_ENVIRONMENT_ID is injected
+        by the platform) and the embedded persistent client everywhere else.
+        """
+        mode = (settings.CHROMA_MODE or "auto").strip().lower()
+        if mode == "http":
+            return True
+        if mode == "persistent":
+            return False
+        return bool(os.environ.get("RAILWAY_ENVIRONMENT_ID"))
+
+    def _open_collection(self, client):
+        return client.get_or_create_collection(
+            name=self.COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"},
+        )
+
+    def _connect_http(self):
+        import chromadb
+        from chromadb.config import Settings as ChromaSettings
+
+        target = f"http://{settings.CHROMA_HOST}:{settings.CHROMA_PORT}"
+        try:
+            self._client = chromadb.HttpClient(
+                host=settings.CHROMA_HOST,
+                port=settings.CHROMA_PORT,
+                settings=ChromaSettings(anonymized_telemetry=False),
+            )
+            self._client.heartbeat()
+            collection = self._open_collection(self._client)
+        except Exception as e:
+            self._client = None
+            logger.error("Could not connect to ChromaDB at %s: %s", target, str(e))
+            raise ChromaConnectionError(f"Could not connect to ChromaDB at {target}: {e}") from e
+        logger.info("Connected to ChromaDB collection '%s' at %s", self.COLLECTION_NAME, target)
+        return collection
+
+    def _connect_persistent(self):
+        import chromadb
+        from chromadb.config import Settings as ChromaSettings
+
+        def open_at(path: str):
+            self._client = chromadb.PersistentClient(
+                path=path,
+                settings=ChromaSettings(anonymized_telemetry=False, allow_reset=True),
+            )
+            return self._open_collection(self._client)
+
+        try:
+            collection = open_at(self.persist_dir)
+        except Exception as e:
+            logger.warning(
+                "Failed to open ChromaDB at %s: %s. Falling back to temporary directory.",
+                self.persist_dir,
+                str(e),
+            )
+            import tempfile
+            self.persist_dir = os.path.join(tempfile.gettempdir(), "edunex_chroma")
+            os.makedirs(self.persist_dir, exist_ok=True)
+            collection = open_at(self.persist_dir)
+        logger.info("Connected to ChromaDB collection '%s' at %s", self.COLLECTION_NAME, self.persist_dir)
+        return collection
+
     def _get_collection(self):
         if self._collection is None:
-            import chromadb
-            from chromadb.config import Settings as ChromaSettings
-
-            try:
-                self._client = chromadb.PersistentClient(
-                    path=self.persist_dir,
-                    settings=ChromaSettings(anonymized_telemetry=False, allow_reset=True),
-                )
-                self._collection = self._client.get_or_create_collection(
-                    name=self.COLLECTION_NAME,
-                    metadata={"hnsw:space": "cosine"},
-                )
-            except Exception as e:
-                import tempfile
-                logger.warning(
-                    "Failed to open ChromaDB at %s: %s. Falling back to temporary directory.",
-                    self.persist_dir,
-                    str(e),
-                )
-                self.persist_dir = os.path.join(tempfile.gettempdir(), "edunex_chroma")
-                os.makedirs(self.persist_dir, exist_ok=True)
-                self._client = chromadb.PersistentClient(
-                    path=self.persist_dir,
-                    settings=ChromaSettings(anonymized_telemetry=False, allow_reset=True),
-                )
-                self._collection = self._client.get_or_create_collection(
-                    name=self.COLLECTION_NAME,
-                    metadata={"hnsw:space": "cosine"},
-                )
-            logger.info("Connected to ChromaDB collection '%s' at %s", self.COLLECTION_NAME, self.persist_dir)
+            self._collection = self._connect_http() if self._use_http else self._connect_persistent()
         return self._collection
 
     def upsert_chunks(

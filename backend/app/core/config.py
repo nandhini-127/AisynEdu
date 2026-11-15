@@ -104,6 +104,10 @@ class Settings(BaseSettings):
 
     # Vector & Storage
     CHROMA_PERSIST_DIR: str = "./data/chroma"
+    # Remote ChromaDB (used on Railway; "auto" mode picks it up there)
+    CHROMA_MODE: str = "auto"  # "auto" | "http" | "persistent"
+    CHROMA_HOST: str = "chromadb.railway.internal"
+    CHROMA_PORT: int = 8000
     UPLOAD_DIR: str = "./data/uploads"
     IMAGE_UPLOAD_DIR: str = "./data/uploads/images"
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"

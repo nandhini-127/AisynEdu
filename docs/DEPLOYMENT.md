@@ -146,7 +146,10 @@ Navigate to the backend service **Variables** tab and set:
 | `GOOGLE_API_KEY` | Your Google Gemini API key (`AIzaSy...`) | **Yes** |
 | `GEMINI_MODEL` | `gemini-2.0-flash` | No |
 | `CORS_ORIGINS` | `["https://edunex-ai.vercel.app","https://*.vercel.app"]` | No |
-| `CHROMA_PERSIST_DIR` | `/app/data/chroma` | No |
+| `CHROMA_PERSIST_DIR` | `/app/data/chroma` (used only by the embedded client, local/Compose) | No |
+| `CHROMA_MODE` | `auto` (HTTP on Railway) · `http` · `persistent` | No |
+| `CHROMA_HOST` | `chromadb.railway.internal` (default) | No |
+| `CHROMA_PORT` | `8000` (default) | No |
 | `UPLOAD_DIR` | `/app/data/uploads` | No |
 
 #### 1.4 Generate Public Domain
