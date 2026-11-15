@@ -8,6 +8,10 @@ from app.core.config import settings
 logger = logging.getLogger("edunex.rag.vectorstore")
 
 
+class ChromaConnectionError(RuntimeError):
+    """Raised when the remote ChromaDB server cannot be reached."""
+
+
 class ChromaVectorStore:
     """
     Manages vector storage and similarity search in ChromaDB.
@@ -17,17 +21,62 @@ class ChromaVectorStore:
     COLLECTION_NAME = "edunex_document_chunks"
 
     def __init__(self, persist_dir: Optional[str] = None):
+        # An explicit persist_dir always selects the embedded client (tests, scripts).
+        self._use_http = persist_dir is None and self._resolve_use_http()
         self.persist_dir = persist_dir or settings.CHROMA_PERSIST_DIR
-        try:
-            os.makedirs(self.persist_dir, exist_ok=True)
-        except (PermissionError, OSError):
-            import tempfile
-            self.persist_dir = os.path.join(tempfile.gettempdir(), "edunex_chroma")
-            os.makedirs(self.persist_dir, exist_ok=True)
+        if not self._use_http:
+            try:
+                os.makedirs(self.persist_dir, exist_ok=True)
+            except (PermissionError, OSError):
+                import tempfile
+                self.persist_dir = os.path.join(tempfile.gettempdir(), "edunex_chroma")
+                os.makedirs(self.persist_dir, exist_ok=True)
         self._client = None
         self._collection = None
 
+    @staticmethod
+    def _resolve_use_http() -> bool:
+        """
+        CHROMA_MODE: "http" | "persistent" | "auto" (default).
+        "auto" uses the remote server on Railway (RAILWAY_ENVIRONMENT_ID is injected
+        by the platform) and the embedded persistent client everywhere else.
+        """
+        mode = (settings.CHROMA_MODE or "auto").strip().lower()
+        if mode == "http":
+            return True
+        if mode == "persistent":
+            return False
+        return bool(os.environ.get("RAILWAY_ENVIRONMENT_ID"))
+
+    def _get_http_collection(self):
+        import chromadb
+        from chromadb.config import Settings as ChromaSettings
+
+        target = f"http://{settings.CHROMA_HOST}:{settings.CHROMA_PORT}"
+        try:
+            self._client = chromadb.HttpClient(
+                host=settings.CHROMA_HOST,
+                port=settings.CHROMA_PORT,
+                settings=ChromaSettings(anonymized_telemetry=False),
+            )
+            self._client.heartbeat()
+            return self._client.get_or_create_collection(
+                name=self.COLLECTION_NAME,
+                metadata={"hnsw:space": "cosine"},
+            )
+        except Exception as e:
+            self._client = None
+            logger.error("Could not connect to ChromaDB at %s: %s", target, str(e))
+            raise ChromaConnectionError(f"Could not connect to ChromaDB at {target}: {e}") from e
+
     def _get_collection(self):
+        if self._collection is None and self._use_http:
+            self._collection = self._get_http_collection()
+            logger.info(
+                "Connected to ChromaDB collection '%s' at http://%s:%s",
+                self.COLLECTION_NAME, settings.CHROMA_HOST, settings.CHROMA_PORT,
+            )
+            return self._collection
         if self._collection is None:
             import chromadb
             from chromadb.config import Settings as ChromaSettings
