@@ -1,6 +1,7 @@
 import os
 import uuid
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,7 @@ SAMPLE_PDFS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "samp
 def set_offline_hf():
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    os.environ["ENVIRONMENT"] = "testing"
 
 
 @pytest.mark.asyncio
@@ -113,6 +115,32 @@ class TestTutorAgent:
         res_adv = await TutorAgent.execute(state_adv)
         assert "response_text" in res_adv
         assert res_adv["latency_ms"] >= 0
+
+    async def test_tutor_agent_gemini_client_no_unbound_local_os_error(self, monkeypatch):
+        """
+        REGRESSION TEST:
+        Ensures that when GOOGLE_API_KEY is configured and ENVIRONMENT is not 'testing',
+        _call_gemini does not raise UnboundLocalError: local variable 'os' referenced before assignment.
+        """
+        from unittest.mock import AsyncMock, patch
+        from app.core.config import settings
+
+        client = LLMClient(provider="gemini")
+        # Simulate production environment with configured API key
+        monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+        monkeypatch.setattr(settings, "GOOGLE_API_KEY", "AIzaSyFakeKeyForRegressionTesting123")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        # Mock asyncio.to_thread in llm_client to intercept Gemini without network traffic
+        with patch("app.agents.llm_client.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+            mock_thread.return_value = "GPU architecture consists of streaming multiprocessors."
+            # Calling _call_gemini evaluates the production environment expressions and line 116 cleanly
+            res = await client._call_gemini(
+                prompt="Explain GPU architecture",
+                system_prompt="You are a tutor.",
+                temperature=0.2,
+            )
+            assert "GPU" in res
 
 
 @pytest.mark.asyncio

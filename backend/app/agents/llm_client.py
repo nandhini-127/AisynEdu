@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from typing import Any, Dict, List, Optional
@@ -107,7 +108,6 @@ class LLMClient:
             or ""
         ).strip()
         if not api_key:
-            import os
             api_key = os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", "")).strip()
 
         if (
@@ -131,7 +131,6 @@ class LLMClient:
             candidate_models.insert(0, self.model_name)
 
         def _sync_call() -> Optional[str]:
-            import os
             os.environ["GEMINI_API_KEY"] = api_key
             os.environ["GOOGLE_API_KEY"] = api_key
 
