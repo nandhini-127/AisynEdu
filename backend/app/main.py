@@ -32,8 +32,10 @@ app = FastAPI(
 # Secure CORS Middleware Configuration (supports localhost, custom domains, and Vercel preview URLs)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origins=[
+        "http://localhost:5173",
+        "https://aisynedu.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
