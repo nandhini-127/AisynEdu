@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -235,17 +236,22 @@ class RAGService:
     ) -> DocumentQueryResponse:
         """
         Performs semantic retrieval and grounded question answering with source citations.
-        Strictly enforces tenant isolation.
+        Strictly enforces tenant isolation and records fine-grained pipeline latency.
         """
+        pipeline_start = time.perf_counter()
+
         # Validate that specified doc_ids belong to the requesting user
         if doc_ids:
             for d_id in doc_ids:
                 await self.get_document(user_id, d_id)
 
         # 1. Embed query
+        embed_start = time.perf_counter()
         query_vector = self.embeddings.embed_query(query_text)
+        embed_ms = (time.perf_counter() - embed_start) * 1000
 
         # 2. Retrieve top-K chunks with user filter
+        retrieval_start = time.perf_counter()
         retrieved_chunks = self.vector_store.query_similar_chunks(
             query_embedding=query_vector,
             user_id=user_id,
@@ -254,11 +260,25 @@ class RAGService:
             top_k=top_k,
             similarity_threshold=similarity_threshold,
         )
+        retrieval_ms = (time.perf_counter() - retrieval_start) * 1000
 
         # 3. Grounded answer generation
         answer, citations, latency_ms, provider = self.generator.generate_answer(
             query=query_text,
             chunks=retrieved_chunks,
+        )
+
+        total_ms = (time.perf_counter() - pipeline_start) * 1000
+
+        logger.info(
+            "[RAG-TIMING] Query Embedding: %.1fms | Vector Retrieval (%d chunks): %.1fms | "
+            "LLM Generation: %dms (provider=%s) | Total Pipeline: %.1fms",
+            embed_ms,
+            len(retrieved_chunks),
+            retrieval_ms,
+            latency_ms,
+            provider,
+            total_ms,
         )
 
         return DocumentQueryResponse(

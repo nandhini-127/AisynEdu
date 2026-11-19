@@ -15,7 +15,11 @@ from app.rag.extractor import (
     EmptyPDFError,
     PDFExtractor,
 )
-from app.rag.generator import RAGGenerator
+from app.rag.generator import (
+    RAGGenerator,
+    _is_transient_error,
+    extract_text_from_gemini_response,
+)
 from app.rag.service import (
     DuplicateDocumentError,
     RAGService,
@@ -218,6 +222,93 @@ class TestRAGGenerator:
         )
         assert len(citations) == 0
         assert "do not contain information" in answer
+
+    def test_transient_error_detection(self):
+        # Transient errors should return True (retryable)
+        assert _is_transient_error(Exception("429 RESOURCE_EXHAUSTED: Rate limit exceeded"))
+        assert _is_transient_error(Exception("503 UNAVAILABLE: Server temporarily busy"))
+        assert _is_transient_error(Exception("Request timed out after 25000ms"))
+        assert _is_transient_error(Exception("Connection reset by peer"))
+
+        # Permanent errors should return False (non-retryable)
+        assert not _is_transient_error(Exception("400 INVALID_ARGUMENT: API_KEY_INVALID"))
+        assert not _is_transient_error(Exception("401 UNAUTHORIZED: Invalid credentials"))
+        assert not _is_transient_error(Exception("403 PERMISSION_DENIED: Access forbidden"))
+        assert not _is_transient_error(Exception("404 NOT_FOUND: Model gemini-invalid not found"))
+
+    def test_bounded_retry_on_transient_error_succeeds(self):
+        from unittest.mock import MagicMock, patch
+
+        generator = RAGGenerator(api_key="real-simulated-key", model_name="gemini-2.0-flash")
+        chunks = [{"filename": "sample.pdf", "page": 1, "text": "Test chunk text", "score": 0.9}]
+
+        call_count = 0
+
+        def mock_single_attempt(prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("429 RESOURCE_EXHAUSTED: Quota exceeded, retry in 1s")
+            return "This is the generated answer [Document: sample.pdf, Page: 1].", "gemini (gemini-2.0-flash)"
+
+        with patch.object(generator, "_is_offline_mode", return_value=False):
+            with patch.object(generator, "_call_gemini_single_attempt", side_effect=mock_single_attempt):
+                with patch("time.sleep", return_value=None):  # Don't delay test
+                    answer, citations, latency_ms, provider = generator.generate_answer(
+                        query="Test query",
+                        chunks=chunks,
+                    )
+
+        assert call_count == 2, f"Expected exactly 2 attempts (1 initial + 1 retry), got {call_count}"
+        assert "This is the generated answer" in answer
+        assert provider == "gemini (gemini-2.0-flash)"
+
+    def test_permanent_error_aborts_immediately_without_retry(self):
+        from unittest.mock import MagicMock, patch
+
+        generator = RAGGenerator(api_key="real-simulated-key", model_name="gemini-2.0-flash")
+        chunks = [{"filename": "sample.pdf", "page": 1, "text": "Test chunk text", "score": 0.9}]
+
+        call_count = 0
+
+        def mock_single_attempt(prompt):
+            nonlocal call_count
+            call_count += 1
+            raise Exception("400 INVALID_ARGUMENT: API_KEY_INVALID")
+
+        with patch.object(generator, "_is_offline_mode", return_value=False):
+            with patch.object(generator, "_call_gemini_single_attempt", side_effect=mock_single_attempt):
+                answer, citations, latency_ms, provider = generator.generate_answer(
+                    query="Test query",
+                    chunks=chunks,
+                )
+
+        assert call_count == 1, f"Expected exactly 1 attempt on permanent error, got {call_count}"
+        # Preserves grounded fallback synthesis upon LLM failure
+        assert provider == "offline-grounded-engine"
+        assert "Based on your study materials" in answer
+
+    def test_extract_text_from_various_formats(self):
+        # 1. Pure string
+        assert extract_text_from_gemini_response("Plain text response") == "Plain text response"
+
+        # 2. Structured content blocks list
+        blocks = [{"type": "text", "text": "Extracted text block", "extras": {"sig": "xyz"}}]
+        assert extract_text_from_gemini_response(blocks) == "Extracted text block"
+
+        # 3. Stringified content block representation
+        raw_repr = "[{'type': 'text', 'text': 'Clean stringified text', 'extras': {'signature': 'abc'}}]"
+        assert extract_text_from_gemini_response(raw_repr) == "Clean stringified text"
+
+        # 4. Object with .text or .content
+        class MockAIMessage:
+            content = "Message content from object"
+
+        assert extract_text_from_gemini_response(MockAIMessage()) == "Message content from object"
+
+        # 5. Empty or None
+        assert extract_text_from_gemini_response(None) == ""
+        assert extract_text_from_gemini_response("") == ""
 
 
 @pytest.mark.asyncio
