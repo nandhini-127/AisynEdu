@@ -20,6 +20,6 @@ fi
 # Ensure required persistent storage directories exist without failing on volume mount permissions
 mkdir -p /app/data/uploads /app/data/uploads/images /app/data/chroma 2>/dev/null || true
 
-echo "Launching AisynEdu FastAPI service..."
+echo "Launching AisynEdu FastAPI service on port ${PORT:-8000}..."
 exec "$@"
 
