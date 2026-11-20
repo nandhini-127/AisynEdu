@@ -115,7 +115,12 @@ class QuizAgent:
                 if questions:
                     return questions
         except Exception as e:
-            logger.warning("Failed to parse JSON quiz questions: %s. Using topic-aware fallback.", str(e))
+            logger.warning("Failed to parse JSON quiz questions: %s.", str(e))
+
+        # Check if model responded in structured Markdown instead of raw JSON
+        md_questions = cls._parse_markdown_questions(raw, difficulty)
+        if md_questions:
+            return md_questions
 
         # Context-aware fallback using the educational engine tailored to the exact topic
         try:
@@ -146,18 +151,65 @@ class QuizAgent:
         return [
             QuizQuestionDict(
                 id=1,
-                question=f"Which core concept represents the primary principle of {topic_label}?",
+                question=f"What is the foundational definition and core principle of {topic_label}?",
                 options=[
-                    f"A) Foundational operational principle of {topic_label}",
-                    "B) An obsolete legacy mechanism from an unrelated domain",
-                    "C) A static hardware component with no software interaction",
-                    "D) None of the above",
+                    f"A) The primary established principles and formal definitions governing {topic_label}",
+                    f"B) An unrelated theoretical concept from another discipline",
+                    f"C) An obsolete historical misconception with no modern significance",
+                    f"D) An informal term without standardized criteria",
                 ],
                 correct_answer="A",
-                explanation=f"Understanding {topic_label} requires mastering its primary operational principles and structural definitions.",
+                explanation=f"Understanding {topic_label} begins with mastering its standard definition, foundational axioms, and primary scope of study.",
                 difficulty=difficulty,
             )
         ]
+
+    @classmethod
+    def _parse_markdown_questions(cls, raw: str, difficulty: str) -> List[QuizQuestionDict]:
+        """Parses questions formatted as Markdown text (**Question X:** ... A) ... B) ...)."""
+        questions: List[QuizQuestionDict] = []
+        try:
+            # Parse answers from <details> if present
+            answers_map: Dict[int, Dict[str, str]] = {}
+            ans_matches = re.finditer(
+                r"\*\*Question\s*(\d+)\s*Answer:\*\*\s*\*\*([A-Da-d])\*\*(?:[\s\S]*?\*([^*]+)\*)?",
+                raw,
+            )
+            for m in ans_matches:
+                q_id = int(m.group(1))
+                answers_map[q_id] = {
+                    "answer": m.group(2).upper(),
+                    "explanation": (m.group(3) or "").strip(),
+                }
+
+            # Split into question blocks
+            blocks = re.split(r"\*\*(?:Question\s*\d+|Q\d+)[:.]?\*\*", raw, flags=re.IGNORECASE)
+            for idx, block in enumerate(blocks[1:], 1):
+                lines = [line.strip() for line in block.strip().split("\n") if line.strip()]
+                if not lines:
+                    continue
+                q_text = re.sub(r"^[:\s-]+", "", lines[0]).strip()
+                raw_options: List[str] = []
+                for line in lines[1:]:
+                    opt_match = re.match(r"^[-*]?\s*([A-Da-d])[).]\s*(.*)$", line)
+                    if opt_match:
+                        raw_options.append(f"{opt_match.group(1).upper()}) {opt_match.group(2).strip()}")
+
+                if len(raw_options) >= 2 and len(q_text) >= 10:
+                    ans_info = answers_map.get(idx, {})
+                    questions.append(
+                        QuizQuestionDict(
+                            id=idx,
+                            question=q_text,
+                            options=raw_options[:4],
+                            correct_answer=ans_info.get("answer", "A"),
+                            explanation=ans_info.get("explanation", f"Pedagogical explanation for question {idx}."),
+                            difficulty=difficulty,
+                        )
+                    )
+        except Exception:
+            pass
+        return questions
 
     @classmethod
     def _format_quiz_markdown(cls, questions: List[QuizQuestionDict], subject: str, difficulty: str) -> str:

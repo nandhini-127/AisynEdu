@@ -632,3 +632,27 @@ class TestResponseQualityRegression:
         assert "gemini-3.8-flash" in candidates
         assert "gemini-2.0-flash" in candidates
         assert "gemini-1.5-flash" in candidates
+
+    async def test_quiz_india_conceptual_accuracy(self):
+        """Validates that Quiz generation on 'India' generates authentic constitutional/historical questions and NO generic filler."""
+        state: AgentState = {
+            "input_query": "India",
+            "subject": "General Knowledge",
+            "difficulty": "intermediate",
+            "llm_provider": "gemini",
+        }
+        res = await QuizAgent.execute(state)
+        questions = res["quiz_data"]
+        assert len(questions) >= 1
+        q1 = questions[0]
+        q_text = q1["question"].lower()
+        # Must not contain generic filler
+        assert "primary concept behind india" not in q_text
+        for opt in q1["options"]:
+            opt_lower = opt.lower()
+            assert "core foundational mechanism of" not in opt_lower
+            assert "an unrelated secondary process" not in opt_lower
+            assert "a legacy deprecated standard" not in opt_lower
+        # Must contain authentic Indian context
+        full_quiz_text = " ".join([q["question"] + " " + " ".join(q["options"]) for q in questions]).lower()
+        assert any(term in full_quiz_text for term in ["constitution", "satyameva jayate", "tropic of cancer", "indus valley", "republic"])

@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from app.core.config import settings
+from app.rag.generator import extract_text_from_gemini_response
 
 logger = logging.getLogger("edunex.agents.llm_client")
 
@@ -168,15 +169,20 @@ class LLMClient:
                                 contents=[prompt],
                                 config=config,
                             )
-                            if hasattr(res, "text") and res.text:
+                            raw_text = getattr(res, "text", "")
+                            if not raw_text and hasattr(res, "candidates") and res.candidates:
+                                parts = getattr(res.candidates[0].content, "parts", [])
+                                raw_text = "".join(getattr(p, "text", "") for p in parts)
+                            clean_text = extract_text_from_gemini_response(raw_text or res)
+                            if clean_text:
                                 latency = int((time.perf_counter() - start_gen) * 1000)
                                 logger.info(
                                     "Gemini generation succeeded with model '%s' (latency=%dms, tokens~=%d)",
                                     model_candidate,
                                     latency,
-                                    len(res.text.split()),
+                                    len(clean_text.split()),
                                 )
-                                return res.text.strip()
+                                return clean_text.strip()
                         except Exception as ex:
                             err_str = str(ex).lower()
                             last_error_info.append(f"{model_candidate}: {str(ex)}")
@@ -381,6 +387,10 @@ class LLMClient:
             any(has_word(w, full_text) for w in ["tamil nadu", "chola", "pallava", "pandya", "dravidian", "thanjavur", "brihadeeswarar", "sangam", "bharatanatyam", "pongal", "madurai", "meenakshi"])
             or "tamil" in topic_lower
         )
+        is_india = (
+            any(has_word(w, full_text) for w in ["india", "bharat", "indian constitution", "republic of india", "new delhi", "indian history", "ashoka", "mahatma gandhi", "himalayas", "ganga", "indus valley"])
+            or topic_lower == "india" or topic_lower == "indian"
+        ) and not is_tamil_nadu
         is_national_bird = (
             any(has_word(w, full_text) for w in ["national bird", "peacock", "peafowl", "pavo cristatus", "bird of india", "national animal", "national symbol"])
             or "national bird" in topic_lower or "peacock" in topic_lower
@@ -395,27 +405,27 @@ class LLMClient:
         )
         is_gpu = (
             any(has_word(w, full_text) for w in ["gpu", "cuda", "tensor core", "tensor cores", "vram", "memory bandwidth", "streaming multiprocessor", "warp", "simt", "parallel processing"])
-            and not is_tamil_nadu and not is_national_bird
+            and not is_tamil_nadu and not is_national_bird and not is_india
         )
         is_ml = (
             any(has_word(w, full_text) for w in ["supervised learning", "unsupervised learning", "classification", "regression", "clustering", "gradient descent", "overfitting", "machine learning"])
-            and not is_gpu and not is_tamil_nadu and not is_national_bird
+            and not is_gpu and not is_tamil_nadu and not is_national_bird and not is_india
         )
         is_dl = (
             any(has_word(w, full_text) for w in ["deep learning", "neural network", "backpropagation", "cnn", "convolutional", "transformer", "attention mechanism", "activation function"])
-            and not is_gpu and not is_tamil_nadu and not is_national_bird
+            and not is_gpu and not is_tamil_nadu and not is_national_bird and not is_india
         )
         is_rag = (
             any(has_word(w, full_text) for w in ["retrieval-augmented generation", "rag", "vector database", "chroma", "embedding"])
-            and not is_tamil_nadu and not is_national_bird
+            and not is_tamil_nadu and not is_national_bird and not is_india
         )
         is_os = (
             any(has_word(w, full_text) for w in ["operating system", "deadlock", "process", "scheduling", "semaphore", "virtual memory", "paging"])
-            and not is_gpu and not is_tamil_nadu and not is_national_bird
+            and not is_gpu and not is_tamil_nadu and not is_national_bird and not is_india
         )
         is_net = (
             any(has_word(w, full_text) for w in ["network", "tcp", "udp", "osi", "three-way handshake", "packet", "routing"])
-            and not is_gpu and not is_tamil_nadu and not is_national_bird
+            and not is_gpu and not is_tamil_nadu and not is_national_bird and not is_india
         )
 
         # ── 2. QUIZ GENERATION ───────────────────────────────────────────
@@ -472,6 +482,62 @@ class LLMClient:
                         ],
                         "correct_answer": "A",
                         "explanation": "Pongal is the major harvest festival celebrated in Tamil Nadu during the Tamil month of Thai (mid-January), spanning Bhogi Pongal, Surya Pongal, Maatu Pongal, and Kaanum Pongal.",
+                        "difficulty": "intermediate"
+                    }
+                ])
+
+            elif is_india:
+                return json.dumps([
+                    {
+                        "id": 1,
+                        "question": "Which historical document serves as the supreme law of the Republic of India, adopted by the Constituent Assembly on November 26, 1949 and brought into effect on January 26, 1950?",
+                        "options": [
+                            "A) The Constitution of India",
+                            "B) The Government of India Act 1935",
+                            "C) The Indian Independence Act 1947",
+                            "D) The Charter Act of 1853"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "The Constitution of India is the supreme law of India, drafted under the chairmanship of Dr. B.R. Ambedkar and enacted on January 26, 1950, which is commemorated annually as Republic Day.",
+                        "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 2,
+                        "question": "What is the official national motto of India, inscribed in Devanagari script at the base of the Lion Capital of Ashoka (National Emblem)?",
+                        "options": [
+                            "A) Satyameva Jayate ('Truth Alone Triumphs')",
+                            "B) Vande Mataram ('I Bow to Thee, Mother')",
+                            "C) Jai Jawan Jai Kisan ('Hail the Soldier, Hail the Farmer')",
+                            "D) Sarva Dharma Sambhava ('Equal Respect for all Religions')"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "'Satyameva Jayate' is an ancient aphorism taken from the sacred Mundaka Upanishad and is inscribed at the base of India's National Emblem.",
+                        "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 3,
+                        "question": "Which prominent latitude line passes through the central region of India across eight states, dividing the country into Northern and Peninsular zones?",
+                        "options": [
+                            "A) Tropic of Cancer (23° 30' N)",
+                            "B) Equator (0°)",
+                            "C) Tropic of Capricorn (23° 30' S)",
+                            "D) Prime Meridian (0°)"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "The Tropic of Cancer passes through eight Indian states: Gujarat, Rajasthan, Madhya Pradesh, Chhattisgarh, Jharkhand, West Bengal, Tripura, and Mizoram.",
+                        "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 4,
+                        "question": "Which ancient bronze-age urban civilization flourished in the northwestern region of the Indian subcontinent around 2500 BCE, renowned for standardized brick architecture and advanced covered drainage?",
+                        "options": [
+                            "A) Indus Valley (Harappan) Civilization",
+                            "B) Mesopotamian Civilization",
+                            "C) Minoan Civilization",
+                            "D) Old Kingdom of Egypt"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "The Indus Valley Civilization (notably Harappa and Mohenjo-Daro) was an advanced urban culture celebrated for grid-planned cities, hydraulic engineering, and standardized weights.",
                         "difficulty": "intermediate"
                     }
                 ])
@@ -836,6 +902,28 @@ class LLMClient:
                     ]
                 })
 
+            elif is_india:
+                return json.dumps({
+                    "overview": f"Comprehensive academic study and revision notes on {clean_topic}, covering the constitutional governance, federal structure, geographical diversity, and historical evolution of the Republic of India.",
+                    "key_points": [
+                        "Constitutional Foundation: The Constitution of India was drafted by the Constituent Assembly under Dr. B.R. Ambedkar, adopted on November 26, 1949 and enacted on January 26, 1950, creating a sovereign socialist secular democratic republic.",
+                        "Government & Federalism: Operates as a federal parliamentary republic comprising 28 States and 8 Union Territories with a bicameral legislature (Lok Sabha and Rajya Sabha) and an independent judiciary headed by the Supreme Court.",
+                        "Physical Geography: Features distinct physiographic divisions including the Northern Himalayan Mountains, Northern Indo-Gangetic Plains, Peninsular Plateau, Coastal Plains, and Islands.",
+                        "Heritage & Culture: Home to the ancient Indus Valley and Vedic civilizations, birthplace of major world religions (Hinduism, Buddhism, Jainism, Sikhism), and renowned for profound linguistic and cultural pluralism."
+                    ],
+                    "definitions": {
+                        "Constitution of India": "The supreme legal document that lays down the framework defining fundamental political principles, governmental structures, procedures, powers, and duties.",
+                        "Preamble": "The introductory statement setting out the guiding purpose, principles, and philosophy of the Constitution (Justice, Liberty, Equality, Fraternity).",
+                        "Federalism with Unitary Bias": "The constitutional distribution of legislative and executive powers between the Union and States, with residuary powers vesting in the Union Centre.",
+                        "Satyameva Jayate": "The national motto derived from the Mundaka Upanishad, meaning 'Truth Alone Triumphs'."
+                    ],
+                    "revision_notes": [
+                        "Exam Fact: National Day of Constitution adoption is November 26 (Constitution Day); enactment day is January 26 (Republic Day).",
+                        "Polity Key: Part III of the Constitution guarantees Fundamental Rights (Articles 12-35); Part IV establishes Directive Principles of State Policy (Articles 36-51).",
+                        "Geography Key: The Tropic of Cancer (23°30'N) divides India into temperate north and tropical south zones across 8 states."
+                    ]
+                })
+
             elif is_national_bird:
                 return json.dumps({
                     "overview": f"Academic study notes covering {clean_topic} (the Indian Peafowl, Pavo cristatus), including its biological taxonomy, morphological adaptations, legal conservation, and cultural symbolism.",
@@ -975,6 +1063,30 @@ class LLMClient:
                 "* **Bharatanatyam:** India's classical dance form rooted in Tamil temple traditions (Sadir), codified in ancient treatise frameworks.\n"
                 "* **Festivals:** **Pongal**, a four-day thanksgiving harvest festival celebrated in the month of Thai (mid-January), honoring the Sun, agricultural cattle, and family harmony.\n\n"
                 "> 💡 **Key Student Takeaway:** Tamil Nadu's heritage is defined by **living continuity**—ancient temples remain active centers of community worship, and Tamil remains in vibrant, continuous literary use across millennia."
+            )
+
+        if is_india:
+            return (
+                f"### Comprehensive Study Guide: {clean_topic}\n\n"
+                f"**The Republic of India (Bharat)** is a sovereign, socialist, secular, democratic republic situated in South Asia. "
+                f"As the world's most populous nation and the largest democracy, India is characterized by immense geographical diversity, "
+                f"an ancient civilizational heritage spanning millennia, a robust constitutional framework, and vibrant socio-economic growth.\n\n"
+                "---\n\n"
+                "#### 1. Constitutional Governance & Political Framework\n"
+                "* **The Constitution of India:** The supreme legal document drafted by the Constituent Assembly under the leadership of Dr. B.R. Ambedkar. It was adopted on **November 26, 1949** and came into legal effect on **January 26, 1950** (celebrated as Republic Day).\n"
+                "* **Federal Parliamentary Structure:** Features a dual polity consisting of the Union Government at the Centre and 28 States and 8 Union Territories. Legislative power resides in a bicameral Parliament: the **Lok Sabha** (House of the People) and the **Rajya Sabha** (Council of States).\n"
+                "* **Constitutional Safeguards:** Guarantees Fundamental Rights (Part III, Articles 12-35) enforceable by the Supreme Court (Article 32), and Directive Principles of State Policy (Part IV) guiding governance.\n\n"
+                "---\n\n"
+                "#### 2. Physical Geography & Physiography\n"
+                "1. **The Northern Himalayan Mountain Wall:** The highest mountain system in the world, acting as a climatic barrier and source for perennial river basins (Indus, Ganga, Brahmaputra).\n"
+                "2. **The Indo-Gangetic Alluvial Plains:** Extremely fertile plains supporting major agricultural production and population density.\n"
+                "3. **The Peninsular Plateau & Coastal Belts:** One of the oldest landmasses on Earth, bordered by the Western Ghats (a global biodiversity hotspot) and Eastern Ghats along the Arabian Sea and Bay of Bengal.\n"
+                "4. **Latitudinal Breadth:** The **Tropic of Cancer (23°30' N)** divides the subcontinent into temperate northern and tropical peninsular regions.\n\n"
+                "---\n\n"
+                "#### 3. Civilizational Antiquity & Cultural Unity in Diversity\n"
+                "* **Ancient Civilizations:** Cradle of the urban Indus Valley (Harappan) Civilization (c. 2500 BCE) and the Vedic civilization.\n"
+                "* **National Symbols:** The National Flag (Tiranga with Ashoka Chakra), National Emblem (Lion Capital of Ashoka with the motto *'Satyameva Jayate'* from Mundaka Upanishad), National Anthem (*Jana Gana Mana*), and National Song (*Vande Mataram*).\n\n"
+                "> 💡 **Key Student Takeaway:** India's foundational character is encapsulated in the concept of **'Unity in Diversity'**—combining a strong constitutional Union with deep linguistic, cultural, and geographic pluralism."
             )
 
         if is_national_bird:
