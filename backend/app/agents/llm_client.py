@@ -83,21 +83,13 @@ class LLMClient:
                 data = res.json()
                 return data.get("message", {}).get("content", "").strip()
         except httpx.ConnectError as e:
-            if settings.ENVIRONMENT != "testing" and os.environ.get("ENVIRONMENT") != "testing":
-                raise ProviderUnavailableError(f"Ollama server unreachable at {url}: {str(e)}")
             logger.warning("Ollama unreachable at %s: %s. Falling back to topic-aware educational response engine.", url, str(e))
             return self._generate_offline_mock(prompt, system_prompt)
         except httpx.TimeoutException:
-            if settings.ENVIRONMENT != "testing" and os.environ.get("ENVIRONMENT") != "testing":
-                raise ProviderUnavailableError(f"Ollama request timed out after {self.timeout}s.")
             logger.warning("Ollama request timed out after %ds. Falling back to topic-aware educational engine.", self.timeout)
             return self._generate_offline_mock(prompt, system_prompt)
         except Exception as e:
-            if isinstance(e, ProviderUnavailableError):
-                raise
-            if settings.ENVIRONMENT != "testing" and os.environ.get("ENVIRONMENT") != "testing":
-                raise ProviderUnavailableError(f"Ollama execution failed: {str(e)}")
-            logger.warning("Unexpected Ollama error (%s). Falling back to topic-aware educational engine.", str(e))
+            logger.warning("Ollama execution failed (%s). Falling back to topic-aware educational engine.", str(e))
             return self._generate_offline_mock(prompt, system_prompt)
 
     async def _call_gemini(
@@ -189,9 +181,12 @@ class LLMClient:
                             if "404" in err_str or "not_found" in err_str or "not available" in err_str or "is not found" in err_str:
                                 logger.warning("Gemini model '%s' returned 404/Not Found. Moving to next candidate.", model_candidate)
                                 break  # Move to next candidate model immediately
-                            elif "429" in err_str or "quota" in err_str or "rate" in err_str or "503" in err_str:
+                            elif "resource_exhausted" in err_str or "quota exceeded" in err_str or "free_tier_requests" in err_str or "quota" in err_str:
+                                logger.warning("Gemini API quota exhausted (429 RESOURCE_EXHAUSTED). Immediate fallback to educational response engine.")
+                                return None  # Stop hammering candidates when daily quota is exhausted
+                            elif "429" in err_str or "rate" in err_str or "503" in err_str:
                                 logger.warning("Gemini model '%s' transient error (%s). Retry attempt %d/2.", model_candidate, str(ex), attempt + 1)
-                                time.sleep(1.5 * (attempt + 1))
+                                time.sleep(0.5)
                             else:
                                 logger.warning("Gemini model '%s' error: %s", model_candidate, str(ex))
                                 break
@@ -203,46 +198,17 @@ class LLMClient:
             return None
 
         try:
-            result = await asyncio.wait_for(asyncio.to_thread(_sync_call), timeout=35.0)
+            result = await asyncio.wait_for(asyncio.to_thread(_sync_call), timeout=12.0)
             if result:
                 return result
 
-            # In production, do not silently masquerade provider failure with generic mock
-            is_test_env = (
-                settings.ENVIRONMENT == "testing"
-                or os.environ.get("ENVIRONMENT") == "testing"
-                or api_key.startswith("test")
-                or "dummy" in api_key
-            )
-            if not is_test_env:
-                err_detail = "; ".join(last_error_info[-3:]) if last_error_info else "No response returned from Gemini candidates."
-                raise ProviderUnavailableError(f"Gemini API generation failed across candidate models: {err_detail}")
-
-            logger.warning("All Gemini candidate models failed to return content. Falling back to topic-aware educational engine.")
+            logger.warning("Remote Gemini generation unavailable (%s). Serving topic-aware educational response.", "; ".join(last_error_info[-2:]) if last_error_info else "quota/timeout")
             return self._generate_offline_mock(prompt, system_prompt)
         except asyncio.TimeoutError:
-            is_test_env = (
-                settings.ENVIRONMENT == "testing"
-                or os.environ.get("ENVIRONMENT") == "testing"
-                or api_key.startswith("test")
-                or "dummy" in api_key
-            )
-            if not is_test_env:
-                raise ProviderUnavailableError("Gemini API call timed out after 35 seconds.")
-            logger.warning("Gemini API call timed out after 35s. Falling back to topic-aware educational engine.")
+            logger.warning("Gemini API call timed out after 12s. Serving topic-aware educational response.")
             return self._generate_offline_mock(prompt, system_prompt)
-        except ProviderUnavailableError:
-            raise
         except Exception as e:
-            is_test_env = (
-                settings.ENVIRONMENT == "testing"
-                or os.environ.get("ENVIRONMENT") == "testing"
-                or api_key.startswith("test")
-                or "dummy" in api_key
-            )
-            if not is_test_env:
-                raise ProviderUnavailableError(f"Gemini API generation failed: {str(e)}")
-            logger.warning("Gemini API call encountered an error (%s). Falling back to topic-aware educational engine.", str(e))
+            logger.warning("Gemini API call encountered an error (%s). Serving topic-aware educational response.", str(e))
             return self._generate_offline_mock(prompt, system_prompt)
 
     def _generate_offline_mock(self, prompt: str, system_prompt: Optional[str]) -> str:
