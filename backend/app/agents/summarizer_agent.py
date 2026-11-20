@@ -41,7 +41,7 @@ class SummarizerAgent:
             temperature=0.2,
         )
 
-        summary_data = cls._parse_summary_json(raw_output)
+        summary_data = cls._parse_summary_json(raw_output, query, subject)
         formatted_markdown = cls._format_summary_markdown(summary_data, subject)
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
@@ -62,35 +62,59 @@ class SummarizerAgent:
         }
 
     @classmethod
-    def _parse_summary_json(cls, raw: str) -> SummaryDataDict:
-        """Parses structured summary JSON from model output."""
+    def _parse_summary_json(cls, raw: str, query: str = "", subject: str = "") -> SummaryDataDict:
+        """Parses structured summary JSON from model output with topic-aware fallback."""
         try:
             match = re.search(r"\{.*\}", raw, re.DOTALL)
             if match:
                 data = json.loads(match.group(0))
-                return SummaryDataDict(
-                    overview=str(data.get("overview", "")),
-                    key_points=list(data.get("key_points", [])),
-                    definitions=dict(data.get("definitions", {})),
-                    revision_notes=list(data.get("revision_notes", [])),
-                )
+                # Validate that returned data has meaningful content
+                kp = list(data.get("key_points", []))
+                defs = dict(data.get("definitions", {}))
+                if kp or defs:
+                    return SummaryDataDict(
+                        overview=str(data.get("overview", "")),
+                        key_points=kp,
+                        definitions=defs,
+                        revision_notes=list(data.get("revision_notes", [])),
+                    )
         except Exception as e:
-            logger.warning("Failed to parse summary JSON: %s. Using structured fallback.", str(e))
+            logger.warning("Failed to parse summary JSON: %s. Using topic-aware fallback.", str(e))
 
+        # Context-aware fallback using the educational engine tailored to the exact topic
+        try:
+            fallback_client = LLMClient()
+            fallback_raw = fallback_client._generate_offline_mock(
+                f"Subject: {subject}\nTarget Chapter / Topic: {query}",
+                "summarize revision notes",
+            )
+            fallback_match = re.search(r"\{.*\}", fallback_raw, re.DOTALL)
+            if fallback_match:
+                fallback_data = json.loads(fallback_match.group(0))
+                return SummaryDataDict(
+                    overview=str(fallback_data.get("overview", "")),
+                    key_points=list(fallback_data.get("key_points", [])),
+                    definitions=dict(fallback_data.get("definitions", {})),
+                    revision_notes=list(fallback_data.get("revision_notes", [])),
+                )
+        except Exception:
+            pass
+
+        topic_label = query or subject or "Academic Concept"
         return SummaryDataDict(
-            overview="Structured chapter summary covering the foundational academic concepts.",
+            overview=f"Structured academic summary and revision notes covering the core principles of {topic_label}.",
             key_points=[
-                "Fundamental principles and theoretical definitions.",
-                "Architectural layers, responsibilities, and components.",
-                "Core algorithms, operational flows, and trade-offs.",
+                f"Core foundations and operational scope of {topic_label}.",
+                f"Primary components, methodologies, and interactions defining {topic_label}.",
+                f"Critical considerations and practical applications in {subject or 'the field'}.",
             ],
             definitions={
-                "Abstraction": "Hiding internal complexity and exposing only necessary interfaces.",
-                "Modularity": "Partitioning system duties into decoupled, manageable modules.",
+                topic_label: f"The primary subject or operational concept under study in {subject or 'this discipline'}.",
+                "Core Principle": "An established fundamental rule governing system behavior and analysis.",
             },
             revision_notes=[
-                "Focus on the definitions and core architecture steps.",
-                "Review the relationship between theoretical models and real implementations.",
+                f"Master the core definitions, components, and primary characteristics of {topic_label}.",
+                "Review the relationship between theoretical models and real-world implementations.",
             ],
         )
 

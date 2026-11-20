@@ -41,7 +41,7 @@ class QuizAgent:
             temperature=0.3,
         )
 
-        quiz_questions = cls._parse_quiz_json(raw_output, difficulty)
+        quiz_questions = cls._parse_quiz_json(raw_output, difficulty, query, subject)
 
         # Build readable student presentation
         formatted_text = cls._format_quiz_markdown(quiz_questions, subject, difficulty)
@@ -63,8 +63,8 @@ class QuizAgent:
         }
 
     @classmethod
-    def _parse_quiz_json(cls, raw: str, difficulty: str) -> List[QuizQuestionDict]:
-        """Extracts JSON list from model response."""
+    def _parse_quiz_json(cls, raw: str, difficulty: str, query: str = "", subject: str = "") -> List[QuizQuestionDict]:
+        """Extracts JSON list from model response, sanitizes instruction leakage, and falls back contextually."""
         try:
             # Look for JSON array in output
             match = re.search(r"\[.*\]", raw, re.DOTALL)
@@ -72,33 +72,89 @@ class QuizAgent:
                 data = json.loads(match.group(0))
                 questions: List[QuizQuestionDict] = []
                 for idx, item in enumerate(data, 1):
-                    questions.append(
-                        QuizQuestionDict(
-                            id=int(item.get("id", idx)),
-                            question=str(item.get("question", "")),
-                            options=list(item.get("options", [])),
-                            correct_answer=str(item.get("correct_answer", "A")).upper().strip()[:1],
-                            explanation=str(item.get("explanation", "")),
-                            difficulty=str(item.get("difficulty", difficulty)),
-                        )
-                    )
-                return questions
-        except Exception as e:
-            logger.warning("Failed to parse JSON quiz questions: %s. Using default structure.", str(e))
+                    q_text = str(item.get("question", "")).strip()
+                    # Sanitize prompt instruction phrases if leaked into question
+                    instruction_phrases = [
+                        "generate a beginner difficulty quiz",
+                        "generate an intermediate difficulty quiz",
+                        "generate an advanced difficulty quiz",
+                        "generate a intermediate difficulty quiz",
+                        "generate a advanced difficulty quiz",
+                        "multiple choice questions on the topic",
+                        "provide 4 clear options",
+                        "return valid json only",
+                    ]
+                    for ip in instruction_phrases:
+                        if ip in q_text.lower():
+                            q_text = re.sub(rf"(?i){re.escape(ip)}.*?:?\s*", "", q_text).strip()
 
-        # Fallback question if JSON parsing fails
+                    raw_options = list(item.get("options", []))
+                    clean_options: List[str] = []
+                    prefixes = ["A) ", "B) ", "C) ", "D) "]
+                    for o_idx, opt in enumerate(raw_options[:4]):
+                        opt_str = str(opt).strip()
+                        # If option already has prefix, normalize it; otherwise add prefix
+                        if re.match(r"^[A-Da-d][).\s]", opt_str):
+                            opt_clean = re.sub(r"^[A-Da-d][).\s]+\s*", "", opt_str).strip()
+                            clean_options.append(f"{prefixes[o_idx]}{opt_clean}")
+                        else:
+                            clean_options.append(f"{prefixes[o_idx]}{opt_str}")
+
+                    # Only accept questions with at least 4 valid options and non-empty text
+                    if len(clean_options) == 4 and len(q_text) >= 10:
+                        questions.append(
+                            QuizQuestionDict(
+                                id=int(item.get("id", idx)),
+                                question=q_text,
+                                options=clean_options,
+                                correct_answer=str(item.get("correct_answer", "A")).upper().strip()[:1],
+                                explanation=str(item.get("explanation", "")),
+                                difficulty=str(item.get("difficulty", difficulty)),
+                            )
+                        )
+                if questions:
+                    return questions
+        except Exception as e:
+            logger.warning("Failed to parse JSON quiz questions: %s. Using topic-aware fallback.", str(e))
+
+        # Context-aware fallback using the educational engine tailored to the exact topic
+        try:
+            fallback_client = LLMClient()
+            fallback_raw = fallback_client._generate_offline_mock(
+                f"Subject: {subject}\nTarget Topic: {query}",
+                "quiz multiple choice",
+            )
+            fallback_match = re.search(r"\[.*\]", fallback_raw, re.DOTALL)
+            if fallback_match:
+                fallback_data = json.loads(fallback_match.group(0))
+                return [
+                    QuizQuestionDict(
+                        id=int(item.get("id", idx)),
+                        question=str(item.get("question", "")),
+                        options=list(item.get("options", [])),
+                        correct_answer=str(item.get("correct_answer", "A")).upper().strip()[:1],
+                        explanation=str(item.get("explanation", "")),
+                        difficulty=str(item.get("difficulty", difficulty)),
+                    )
+                    for idx, item in enumerate(fallback_data, 1)
+                ]
+        except Exception:
+            pass
+
+        # Final resilient baseline
+        topic_label = query or subject or "Academic Concept"
         return [
             QuizQuestionDict(
                 id=1,
-                question="Which protocol operates at Layer 4 of the OSI model to provide reliable delivery?",
+                question=f"Which core concept represents the primary principle of {topic_label}?",
                 options=[
-                    "A) Internet Protocol (IP)",
-                    "B) Transmission Control Protocol (TCP)",
-                    "C) User Datagram Protocol (UDP)",
-                    "D) Hypertext Transfer Protocol (HTTP)",
+                    f"A) Foundational operational principle of {topic_label}",
+                    "B) An obsolete legacy mechanism from an unrelated domain",
+                    "C) A static hardware component with no software interaction",
+                    "D) None of the above",
                 ],
-                correct_answer="B",
-                explanation="TCP operates at Layer 4 (Transport) and guarantees in-order, reliable delivery via the 3-way handshake.",
+                correct_answer="A",
+                explanation=f"Understanding {topic_label} requires mastering its primary operational principles and structural definitions.",
                 difficulty=difficulty,
             )
         ]

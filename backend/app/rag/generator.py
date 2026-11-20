@@ -258,6 +258,14 @@ class RAGGenerator:
         Prefers the official google.genai SDK; falls back to LangChain ONLY if google.genai is not installed.
         Enforces a 25-second per-request network timeout.
         """
+        # Build candidate models list prioritizing configured model with verified active fallbacks
+        candidate_models = []
+        if self.model_name:
+            candidate_models.append(self.model_name)
+        for fallback in ["gemini-2.0-flash", "gemini-1.5-flash"]:
+            if fallback not in candidate_models:
+                candidate_models.append(fallback)
+
         # Primary: google.genai SDK
         try:
             from google import genai
@@ -265,14 +273,22 @@ class RAGGenerator:
                 api_key=self.api_key,
                 http_options={"timeout": 25000},  # 25s bounded request timeout
             )
-            response = client.models.generate_content(
-                model=self.model_name,
-                contents=[user_prompt],
-                config={"system_instruction": GROUNDED_SYSTEM_PROMPT, "temperature": 0.2},
-            )
-            raw = getattr(response, "text", response)
-            extracted = extract_text_from_gemini_response(raw)
-            return extracted, f"gemini ({self.model_name})"
+            for candidate in candidate_models:
+                try:
+                    response = client.models.generate_content(
+                        model=candidate,
+                        contents=[user_prompt],
+                        config={"system_instruction": GROUNDED_SYSTEM_PROMPT, "temperature": 0.2},
+                    )
+                    raw = getattr(response, "text", response)
+                    extracted = extract_text_from_gemini_response(raw)
+                    return extracted, f"gemini ({candidate})"
+                except Exception as ex:
+                    err_str = str(ex).lower()
+                    if "404" in err_str or "not_found" in err_str or "not available" in err_str or "is not found" in err_str:
+                        logger.warning("RAGGenerator: model candidate '%s' returned 404. Trying next candidate.", candidate)
+                        continue
+                    raise ex
         except ImportError:
             logger.info("google-genai SDK not available; falling back to langchain-google-genai.")
         except Exception as e:

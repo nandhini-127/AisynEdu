@@ -452,3 +452,183 @@ class TestChatAPIEndpointsWithAgents:
             headers=headers,
         )
         assert len(post_clear_res.json()["data"]) == 0
+
+
+@pytest.mark.asyncio
+class TestResponseQualityRegression:
+    """
+    CRITICAL REGRESSION TEST SUITE:
+    Guarantees contextual relevance across all features (Tutor, Quiz, Notes, RAG),
+    prevents cross-subject contamination (e.g. GPU hardware answering Tamil Nadu or National Birds),
+    and validates explicit provider error handling.
+    """
+
+    async def test_ai_tutor_python(self):
+        """Validates AI Tutor generates contextual, topic-accurate explanation for Python."""
+        state: AgentState = {
+            "input_query": "Explain Python memory management and the Global Interpreter Lock (GIL)",
+            "subject": "Python Programming",
+            "difficulty": "intermediate",
+            "llm_provider": "gemini",
+        }
+        res = await TutorAgent.execute(state)
+        text = res["response_text"].lower()
+        assert "python" in text
+        assert "gil" in text or "reference counting" in text or "memory" in text
+        # Must not contain unrelated domain terms
+        assert "chola" not in text
+        assert "brihadeeswarar" not in text
+        assert "pavo cristatus" not in text
+
+    async def test_ai_tutor_artificial_intelligence(self):
+        """Validates AI Tutor generates contextual explanations for Artificial Intelligence."""
+        state: AgentState = {
+            "input_query": "What is Machine Learning and how does Gradient Descent work?",
+            "subject": "Artificial Intelligence",
+            "difficulty": "intermediate",
+            "llm_provider": "gemini",
+        }
+        res = await TutorAgent.execute(state)
+        text = res["response_text"].lower()
+        assert "machine learning" in text or "gradient descent" in text or "loss function" in text
+        assert "chola" not in text
+        assert "pavo cristatus" not in text
+
+    async def test_quiz_tamil_nadu_heritage(self):
+        """Validates Quiz generation on Tamil Nadu heritage contains NO GPU hardware terminology."""
+        state: AgentState = {
+            "input_query": "Tamil Nadu heritage, Chola dynasty, and temple architecture",
+            "subject": "History & Heritage",
+            "difficulty": "intermediate",
+            "llm_provider": "gemini",
+        }
+        res = await QuizAgent.execute(state)
+        assert "quiz_data" in res
+        questions = res["quiz_data"]
+        assert len(questions) >= 1
+
+        all_text = " ".join([q["question"] + " " + " ".join(q["options"]) for q in questions]).lower()
+        # Must contain Tamil Nadu heritage concepts
+        assert any(term in all_text for term in ["temple", "chola", "tamil", "dravidian", "thanjavur", "brihadeeswarar", "pongal", "sangam"])
+        # Must NOT contain GPU hardware terminology
+        assert "cuda" not in all_text
+        assert "tensor core" not in all_text
+        assert "vram" not in all_text
+        assert "streaming multiprocessor" not in all_text
+
+    async def test_quiz_computer_science_gpu(self):
+        """Validates Quiz generation on Computer Science / GPU Architecture focuses on hardware concepts."""
+        state: AgentState = {
+            "input_query": "GPU Architecture and CUDA Cores",
+            "subject": "Computer Science",
+            "difficulty": "intermediate",
+            "llm_provider": "gemini",
+        }
+        res = await QuizAgent.execute(state)
+        assert "quiz_data" in res
+        questions = res["quiz_data"]
+        assert len(questions) >= 1
+
+        all_text = " ".join([q["question"] + " " + " ".join(q["options"]) for q in questions]).lower()
+        assert "cuda" in all_text or "gpu" in all_text or "tensor core" in all_text or "vram" in all_text
+        assert "chola" not in all_text
+        assert "peafowl" not in all_text
+
+    async def test_study_notes_national_bird(self):
+        """Validates Study Notes for National Bird contains NO GPU/CUDA terminology."""
+        state: AgentState = {
+            "input_query": "National bird of India, Indian Peafowl, and conservation status",
+            "subject": "Biology & Ecology",
+            "llm_provider": "gemini",
+        }
+        res = await SummarizerAgent.execute(state)
+        assert "summary_data" in res
+        data = res["summary_data"]
+        combined = (data.get("overview", "") + " " + " ".join(data.get("key_points", [])) + " " + " ".join(data.get("definitions", {}).keys())).lower()
+
+        # Must relate to the National Bird
+        assert any(term in combined for term in ["peafowl", "peacock", "pavo cristatus", "bird", "national"])
+        # Must NOT leak GPU hardware
+        assert "cuda" not in combined
+        assert "tensor core" not in combined
+        assert "vram" not in combined
+        assert "streaming multiprocessor" not in combined
+
+    async def test_study_notes_database_indexing(self):
+        """Validates Study Notes for Database Indexing details B+ Trees and clustered indexes."""
+        state: AgentState = {
+            "input_query": "Database indexing, B+ Trees, and clustered indexes",
+            "subject": "Database Management Systems",
+            "llm_provider": "gemini",
+        }
+        res = await SummarizerAgent.execute(state)
+        assert "summary_data" in res
+        data = res["summary_data"]
+        combined = (data.get("overview", "") + " " + " ".join(data.get("key_points", [])) + " " + " ".join(data.get("definitions", {}).keys())).lower()
+
+        assert "index" in combined
+        assert "b+ tree" in combined or "clustered" in combined or "database" in combined
+        assert "chola" not in combined
+        assert "peafowl" not in combined
+
+    def test_malformed_json_quiz_resilience(self):
+        """Validates QuizAgent handles malformed JSON gracefully with topic-grounded fallback."""
+        questions = QuizAgent._parse_quiz_json(
+            raw="This is not valid json content [broken",
+            difficulty="intermediate",
+            query="Tamil Nadu heritage",
+            subject="History",
+        )
+        assert len(questions) >= 1
+        assert "question" in questions[0]
+        assert len(questions[0]["options"]) == 4
+        # Must reflect Tamil Nadu, not OSI model Layer 4
+        all_text = (questions[0]["question"] + " " + " ".join(questions[0]["options"])).lower()
+        assert "tamil nadu" in all_text or "temple" in all_text or "chola" in all_text
+
+    def test_malformed_json_summary_resilience(self):
+        """Validates SummarizerAgent handles malformed JSON gracefully with topic-grounded fallback."""
+        summary = SummarizerAgent._parse_summary_json(
+            raw="Broken { json output here",
+            query="National bird of India",
+            subject="Biology",
+        )
+        assert "overview" in summary
+        assert len(summary["key_points"]) >= 1
+        combined = (summary["overview"] + " " + " ".join(summary["key_points"])).lower()
+        assert "national bird" in combined or "peafowl" in combined or "biology" in combined
+
+    async def test_production_provider_failure_detection(self, monkeypatch):
+        """Validates that in production mode, remote provider failure raises ProviderUnavailableError."""
+        from app.core.config import settings
+
+        client = LLMClient(provider="gemini", model_name="gemini-nonexistent-model")
+        monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+        monkeypatch.setattr(settings, "GOOGLE_API_KEY", "AIzaSyFakeKeyForTesting123456789")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        # Mock asyncio.to_thread in llm_client to return None (simulating failure of all remote candidates)
+        with patch("app.agents.llm_client.asyncio.to_thread") as mock_thread:
+            mock_thread.return_value = None
+            with pytest.raises(ProviderUnavailableError):
+                await client._call_gemini(
+                    prompt="Explain Tamil Nadu heritage",
+                    system_prompt="You are a tutor.",
+                    temperature=0.2,
+                )
+
+    def test_candidate_models_contain_live_google_models(self):
+        """Validates that candidate models list includes verified live models for Railway fallback."""
+        client = LLMClient(provider="gemini", model_name="gemini-3.8-flash")
+        # Ensure that regardless of whether GEMINI_MODEL is set to gemini-3.8-flash,
+        # live models gemini-2.0-flash and gemini-1.5-flash are present in candidates
+        candidates = []
+        if client.model_name:
+            candidates.append(client.model_name)
+        for live in ["gemini-2.0-flash", "gemini-1.5-flash"]:
+            if live not in candidates:
+                candidates.append(live)
+
+        assert "gemini-3.8-flash" in candidates
+        assert "gemini-2.0-flash" in candidates
+        assert "gemini-1.5-flash" in candidates

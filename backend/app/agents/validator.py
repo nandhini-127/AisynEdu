@@ -96,7 +96,13 @@ class TopicRelevanceValidator:
 
         query_domain = cls.detect_query_domain(query, subject)
         if not query_domain:
-            # Query is general; no strict domain constraints apply
+            # General query: ensure response does not contain unrelated GPU hardware contamination
+            is_gpu_query = bool(re.search(r"\b(gpu|cuda|vram|tensor core)\b", f"{query} {subject}".lower()))
+            if not is_gpu_query:
+                gpu_terms = ["cuda", "tensor core", "tensor cores", "streaming multiprocessor", "vram"]
+                gpu_hits = sum(1 for kw in gpu_terms if re.search(r"\b" + kw + r"\b", response.lower()))
+                if gpu_hits >= 2:
+                    return False, "general", "Response contained unrelated GPU hardware concepts for a non-hardware query."
             return True, None, None
 
         resp_lower = response.lower()
