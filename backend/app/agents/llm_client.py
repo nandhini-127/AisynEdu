@@ -916,7 +916,7 @@ class LLMClient:
                         "Preamble": "The introductory statement setting out the guiding purpose, principles, and philosophy of the Constitution (Justice, Liberty, Equality, Fraternity).",
                         "Federalism with Unitary Bias": "The constitutional distribution of legislative and executive powers between the Union and States, with residuary powers vesting in the Union Centre.",
                         "Satyameva Jayate": "The national motto derived from the Mundaka Upanishad, meaning 'Truth Alone Triumphs'."
-                    ],
+                    },
                     "revision_notes": [
                         "Exam Fact: National Day of Constitution adoption is November 26 (Constitution Day); enactment day is January 26 (Republic Day).",
                         "Polity Key: Part III of the Constitution guarantees Fundamental Rights (Articles 12-35); Part IV establishes Directive Principles of State Policy (Articles 36-51).",
