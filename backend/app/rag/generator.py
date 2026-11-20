@@ -17,6 +17,11 @@ def _is_transient_error(error: Exception) -> bool:
     versus permanent (400 invalid argument/bad key, 401 unauthorized, 403 forbidden, 404 not found).
     """
     err_str = str(error).lower()
+
+    # Quota exhaustion must not be retried (daily quota exceeded)
+    if "resource_exhausted" in err_str or "quota" in err_str or "free_tier" in err_str:
+        return False
+
     # Permanent errors - NEVER retry
     permanent_indicators = [
         "400",
@@ -37,16 +42,12 @@ def _is_transient_error(error: Exception) -> bool:
 
     # Transient errors - retry with bounded backoff + jitter
     transient_indicators = [
-        "429",
-        "resource_exhausted",
-        "quota",
-        "rate limit",
-        "rate_limit",
         "503",
         "unavailable",
+        "504",
+        "deadline",
         "timeout",
         "timed out",
-        "deadline",
         "connection reset",
         "connection error",
         "connect error",
@@ -143,7 +144,7 @@ class RAGGenerator:
             or os.environ.get("GEMINI_API_KEY", "")
             or ""
         ).strip().strip("'\"")
-        self.model_name = (model_name or settings.GEMINI_MODEL or "gemini-2.0-flash").strip().strip("'\"")
+        self.model_name = (model_name or settings.GEMINI_MODEL or "gemini-3.8-flash").strip().strip("'\"")
 
     def build_context_prompt(self, query: str, chunks: List[Dict[str, Any]]) -> str:
         """
@@ -258,13 +259,8 @@ class RAGGenerator:
         Prefers the official google.genai SDK; falls back to LangChain ONLY if google.genai is not installed.
         Enforces a 25-second per-request network timeout.
         """
-        # Build candidate models list prioritizing configured model with verified active fallbacks
-        candidate_models = []
-        if self.model_name:
-            candidate_models.append(self.model_name)
-        for fallback in ["gemini-2.0-flash", "gemini-1.5-flash"]:
-            if fallback not in candidate_models:
-                candidate_models.append(fallback)
+        # Candidate models strictly starting with configured primary model (no hardcoded 404 candidates)
+        candidate_models = [self.model_name] if self.model_name else ["gemini-3.8-flash"]
 
         # Primary: google.genai SDK
         try:
@@ -273,7 +269,10 @@ class RAGGenerator:
                 api_key=self.api_key,
                 http_options={"timeout": 25000},  # 25s bounded request timeout
             )
-            for candidate in candidate_models:
+            idx = 0
+            while idx < len(candidate_models):
+                candidate = candidate_models[idx]
+                idx += 1
                 try:
                     response = client.models.generate_content(
                         model=candidate,
@@ -286,7 +285,15 @@ class RAGGenerator:
                 except Exception as ex:
                     err_str = str(ex).lower()
                     if "404" in err_str or "not_found" in err_str or "not available" in err_str or "is not found" in err_str:
-                        logger.warning("RAGGenerator: model candidate '%s' returned 404. Trying next candidate.", candidate)
+                        logger.warning("RAGGenerator: model candidate '%s' returned 404. Checking dynamically verified models.", candidate)
+                        try:
+                            for m in client.models.list():
+                                m_name = getattr(m, "name", "").replace("models/", "")
+                                if "gemini" in m_name and m_name not in candidate_models:
+                                    candidate_models.append(m_name)
+                                    break
+                        except Exception:
+                            pass
                         continue
                     raise ex
         except ImportError:

@@ -126,4 +126,7 @@ class RAGAgent:
             "citations": citations,
             "is_document_grounded": is_grounded,
             "latency_ms": latency_ms,
+            "is_fallback": getattr(client, "last_is_fallback", False),
+            "fallback_reason": getattr(client, "last_fallback_reason", None),
+            "llm_provider": getattr(client, "last_provider_used", provider),
         }

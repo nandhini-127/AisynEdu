@@ -60,6 +60,9 @@ class QuizAgent:
             "quiz_data": quiz_questions,
             "is_document_grounded": bool(context),
             "latency_ms": latency_ms,
+            "is_fallback": getattr(client, "last_is_fallback", False),
+            "fallback_reason": getattr(client, "last_fallback_reason", None),
+            "llm_provider": getattr(client, "last_provider_used", provider),
         }
 
     @classmethod
@@ -146,17 +149,17 @@ class QuizAgent:
         except Exception:
             pass
 
-        # Final resilient baseline
+        # Final resilient baseline tailored specifically to the requested topic
         topic_label = query or subject or "Academic Concept"
         return [
             QuizQuestionDict(
                 id=1,
-                question=f"What is the foundational definition and core principle of {topic_label}?",
+                question=f"Which statement best characterizes the primary scope, formal definition, or significance of {topic_label}?",
                 options=[
-                    f"A) The primary established principles and formal definitions governing {topic_label}",
-                    f"B) An unrelated theoretical concept from another discipline",
-                    f"C) An obsolete historical misconception with no modern significance",
-                    f"D) An informal term without standardized criteria",
+                    f"A) It establishes foundational principles, operational frameworks, and standardized methods in {topic_label}.",
+                    f"B) It represents an unverified anecdotal concept without recognized curriculum documentation.",
+                    f"C) It asserts that {topic_label} has no systematic methods or practical applications.",
+                    f"D) It restricts study exclusively to subjective speculation without empirical validation.",
                 ],
                 correct_answer="A",
                 explanation=f"Understanding {topic_label} begins with mastering its standard definition, foundational axioms, and primary scope of study.",

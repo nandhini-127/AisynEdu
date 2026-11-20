@@ -2,15 +2,26 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 import time
 from typing import Any, Dict, List, Optional
 import httpx
 
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None  # type: ignore
+    types = None  # type: ignore
+
 from app.core.config import settings
 from app.rag.generator import extract_text_from_gemini_response
 
 logger = logging.getLogger("edunex.agents.llm_client")
+
+# Cache for verified available models from the Google GenAI API to prevent hardcoded 404s
+_VERIFIED_GEMINI_MODELS: Dict[str, List[str]] = {}
 
 
 class ProviderUnavailableError(Exception):
@@ -28,13 +39,16 @@ class LLMClient:
         self,
         provider: Optional[str] = None,
         model_name: Optional[str] = None,
-        timeout_seconds: float = 30.0,
+        timeout_seconds: Optional[float] = None,
     ):
         self.provider = (provider or "gemini").lower()
         self.model_name = model_name or (
             settings.GEMINI_MODEL if self.provider == "gemini" else settings.OLLAMA_MODEL
         )
-        self.timeout = timeout_seconds
+        self.timeout = float(timeout_seconds if timeout_seconds is not None else getattr(settings, "LLM_TIMEOUT_SECONDS", 30.0))
+        self.last_is_fallback: bool = False
+        self.last_fallback_reason: Optional[str] = None
+        self.last_provider_used: str = self.provider
 
     async def generate_response(
         self,
@@ -92,11 +106,20 @@ class LLMClient:
             logger.warning("Ollama execution failed (%s). Falling back to topic-aware educational engine.", str(e))
             return self._generate_offline_mock(prompt, system_prompt)
 
+    def _create_genai_client(self, api_key: str, timeout_ms: int) -> Any:
+        """Creates the official google-genai Client instance."""
+        if genai is None:
+            raise ImportError("google-genai package is not installed.")
+        return genai.Client(
+            api_key=api_key,
+            http_options={"timeout": timeout_ms},
+        )
+
     async def _call_gemini(
         self,
         prompt: str,
-        system_prompt: Optional[str],
-        temperature: float,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.2,
     ) -> str:
         """
         Calls Google Gemini API asynchronously using official google-genai SDK.
@@ -120,96 +143,134 @@ class LLMClient:
             or "your_gemini_api_key_here" in api_key
         ):
             logger.info("Using topic-aware educational response engine (no external Google API key configured or in test mode).")
+            self.last_is_fallback = True
+            self.last_fallback_reason = "Offline test mode or missing API key."
+            self.last_provider_used = "offline-educational-engine"
             return self._generate_offline_mock(prompt, system_prompt)
 
-        # Build prioritized list of active supported models
-        candidate_models: List[str] = []
-        # User or environment configured model first (e.g. Railway GEMINI_MODEL)
-        if self.model_name and self.model_name not in candidate_models:
-            candidate_models.append(self.model_name)
-        # Prioritize confirmed live models from Google Generative AI
-        for live_model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-flash-latest"]:
-            if live_model not in candidate_models:
-                candidate_models.append(live_model)
-
+        primary_model = self.model_name or settings.GEMINI_MODEL or "gemini-3.8-flash"
+        candidate_models: List[str] = [primary_model]
         last_error_info: List[str] = []
+        timeout_ms = int(self.timeout * 1000)
 
-        def _sync_call() -> Optional[str]:
-            os.environ["GEMINI_API_KEY"] = api_key
-            os.environ["GOOGLE_API_KEY"] = api_key
-
-            try:
-                from google import genai
-                from google.genai import types
-
-                client = genai.Client(
-                    api_key=api_key,
-                    http_options={"timeout": 30000},  # 30-second timeout for comprehensive generations
-                )
-
-                config = types.GenerateContentConfig(
-                    temperature=temperature,
-                    system_instruction=system_prompt if system_prompt else None,
-                )
-
-                for model_candidate in candidate_models:
-                    for attempt in range(2):  # Up to 2 retries per candidate on transient issues
-                        try:
-                            start_gen = time.perf_counter()
-                            res = client.models.generate_content(
-                                model=model_candidate,
-                                contents=[prompt],
-                                config=config,
-                            )
-                            raw_text = getattr(res, "text", "")
-                            if not raw_text and hasattr(res, "candidates") and res.candidates:
-                                parts = getattr(res.candidates[0].content, "parts", [])
-                                raw_text = "".join(getattr(p, "text", "") for p in parts)
-                            clean_text = extract_text_from_gemini_response(raw_text or res)
-                            if clean_text:
-                                latency = int((time.perf_counter() - start_gen) * 1000)
-                                logger.info(
-                                    "Gemini generation succeeded with model '%s' (latency=%dms, tokens~=%d)",
-                                    model_candidate,
-                                    latency,
-                                    len(clean_text.split()),
-                                )
-                                return clean_text.strip()
-                        except Exception as ex:
-                            err_str = str(ex).lower()
-                            last_error_info.append(f"{model_candidate}: {str(ex)}")
-                            if "404" in err_str or "not_found" in err_str or "not available" in err_str or "is not found" in err_str:
-                                logger.warning("Gemini model '%s' returned 404/Not Found. Moving to next candidate.", model_candidate)
-                                break  # Move to next candidate model immediately
-                            elif "resource_exhausted" in err_str or "quota exceeded" in err_str or "free_tier_requests" in err_str or "quota" in err_str:
-                                logger.warning("Gemini API quota exhausted (429 RESOURCE_EXHAUSTED). Immediate fallback to educational response engine.")
-                                return None  # Stop hammering candidates when daily quota is exhausted
-                            elif "429" in err_str or "rate" in err_str or "503" in err_str:
-                                logger.warning("Gemini model '%s' transient error (%s). Retry attempt %d/2.", model_candidate, str(ex), attempt + 1)
-                                time.sleep(0.5)
-                            else:
-                                logger.warning("Gemini model '%s' error: %s", model_candidate, str(ex))
-                                break
-
-            except Exception as outer_ex:
-                last_error_info.append(f"Client init error: {str(outer_ex)}")
-                logger.warning("Error initializing google.genai client: %s", str(outer_ex))
-
-            return None
+        os.environ["GEMINI_API_KEY"] = api_key
+        os.environ["GOOGLE_API_KEY"] = api_key
 
         try:
-            result = await asyncio.wait_for(asyncio.to_thread(_sync_call), timeout=12.0)
-            if result:
-                return result
+            if types is None:
+                raise ImportError("google.genai.types is not available.")
 
-            logger.warning("Remote Gemini generation unavailable (%s). Serving topic-aware educational response.", "; ".join(last_error_info[-2:]) if last_error_info else "quota/timeout")
-            return self._generate_offline_mock(prompt, system_prompt)
-        except asyncio.TimeoutError:
-            logger.warning("Gemini API call timed out after 12s. Serving topic-aware educational response.")
-            return self._generate_offline_mock(prompt, system_prompt)
-        except Exception as e:
-            logger.warning("Gemini API call encountered an error (%s). Serving topic-aware educational response.", str(e))
-            return self._generate_offline_mock(prompt, system_prompt)
+            client = self._create_genai_client(api_key=api_key, timeout_ms=timeout_ms)
+
+            config = types.GenerateContentConfig(
+                temperature=temperature,
+                system_instruction=system_prompt if system_prompt else None,
+            )
+
+            idx = 0
+            while idx < len(candidate_models):
+                model_candidate = candidate_models[idx]
+                idx += 1
+
+                for attempt in range(2):  # At most 1 retry for transient 503/504
+                    try:
+                        start_gen = time.perf_counter()
+                        # Native asynchronous call using client.aio
+                        call_coro = client.aio.models.generate_content(
+                            model=model_candidate,
+                            contents=[prompt],
+                            config=config,
+                        )
+                        res = await asyncio.wait_for(call_coro, timeout=self.timeout)
+                        raw_text = getattr(res, "text", "")
+                        if not raw_text and hasattr(res, "candidates") and res.candidates:
+                            parts = getattr(res.candidates[0].content, "parts", [])
+                            raw_text = "".join(getattr(p, "text", "") for p in parts)
+                        clean_text = extract_text_from_gemini_response(raw_text or res)
+                        if clean_text:
+                            latency = int((time.perf_counter() - start_gen) * 1000)
+                            logger.info(
+                                "Gemini generation succeeded with model '%s' (latency=%dms, tokens~=%d)",
+                                model_candidate,
+                                latency,
+                                len(clean_text.split()),
+                            )
+                            self.last_is_fallback = False
+                            self.last_fallback_reason = None
+                            self.last_provider_used = f"gemini ({model_candidate})"
+                            return clean_text.strip()
+                    except asyncio.TimeoutError:
+                        logger.warning("Gemini model '%s' timed out after %.1fs.", model_candidate, self.timeout)
+                        last_error_info.append(f"{model_candidate}: Request timed out after {int(self.timeout)}s")
+                        break  # Immediately fallback on timeout without cascading across models
+                    except Exception as ex:
+                        err_str = str(ex).lower()
+                        last_error_info.append(f"{model_candidate}: {str(ex)}")
+
+                        if "404" in err_str or "not_found" in err_str or "not available" in err_str or "is not found" in err_str:
+                            logger.warning("Gemini model '%s' returned 404/Not Found.", model_candidate)
+                            if api_key not in _VERIFIED_GEMINI_MODELS:
+                                try:
+                                    verified = []
+                                    async for m in client.aio.models.list():
+                                        m_name = getattr(m, "name", "")
+                                        if m_name.startswith("models/"):
+                                            m_name = m_name[len("models/"):]
+                                        if "gemini" in m_name and m_name not in candidate_models:
+                                            verified.append(m_name)
+                                    _VERIFIED_GEMINI_MODELS[api_key] = verified
+                                    logger.info("Dynamically verified available Gemini models for API key: %s", verified)
+                                except Exception as list_err:
+                                    logger.warning("Could not list verified models from Google GenAI API: %s", list_err)
+                                    _VERIFIED_GEMINI_MODELS[api_key] = []
+
+                            verified_list = _VERIFIED_GEMINI_MODELS.get(api_key, [])
+                            for v_model in verified_list:
+                                if v_model not in candidate_models:
+                                    candidate_models.append(v_model)
+                                    break
+                            break
+
+                        elif "resource_exhausted" in err_str or "quota exceeded" in err_str or "free_tier_requests" in err_str or "quota" in err_str:
+                            logger.warning("Gemini API quota exhausted (429 RESOURCE_EXHAUSTED). Immediate fallback to educational response engine.")
+                            self.last_is_fallback = True
+                            self.last_fallback_reason = "Google Gemini API rate limit or quota exceeded (429 RESOURCE_EXHAUSTED). Please try again shortly or use offline mode."
+                            self.last_provider_used = "offline-grounded-fallback"
+                            return self._get_fallback_response(prompt, system_prompt)
+
+                        elif ("503" in err_str or "unavailable" in err_str or "504" in err_str or "deadline" in err_str) and attempt == 0:
+                            backoff = 1.5 * (2 ** attempt) + random.uniform(0.2, 0.5)
+                            logger.warning("Gemini model '%s' transient error (%s). Retrying in %.2fs with jitter...", model_candidate, str(ex), backoff)
+                            await asyncio.sleep(backoff)
+                        else:
+                            logger.warning("Gemini model '%s' unrecoverable error: %s", model_candidate, str(ex))
+                            break
+
+        except Exception as outer_ex:
+            last_error_info.append(f"Client error: {str(outer_ex)}")
+            logger.warning("Gemini execution failed: %s", str(outer_ex))
+
+        err_summary = "; ".join(last_error_info[-2:]) if last_error_info else "quota/timeout"
+        logger.warning("Remote Gemini generation unavailable (%s). Serving topic-aware educational response.", err_summary)
+        self.last_is_fallback = True
+        if "429" in err_summary or "quota" in err_summary or "resource_exhausted" in err_summary:
+            self.last_fallback_reason = "Google Gemini API rate limit or quota exceeded (429 RESOURCE_EXHAUSTED). Please try again shortly or use offline mode."
+        elif "timed out" in err_summary:
+            self.last_fallback_reason = f"Gemini API request timed out after {int(self.timeout)}s."
+        else:
+            self.last_fallback_reason = f"Gemini API unavailable: {err_summary}"
+        self.last_provider_used = "offline-grounded-fallback"
+        return self._get_fallback_response(prompt, system_prompt)
+
+    def _get_fallback_response(self, prompt: str, system_prompt: Optional[str]) -> str:
+        """Adds a clear service notice banner to user-facing markdown explanations when Gemini is unavailable."""
+        mock = self._generate_offline_mock(prompt, system_prompt)
+        trimmed = mock.strip()
+        # Never alter JSON structured payloads (quizzes, summaries, router decisions)
+        if not trimmed.startswith(("[", "{")) and "Service Notice:" not in trimmed:
+            service_notice = "> ⚠️ **Service Notice:** Google Gemini API is temporarily at capacity (or in offline mode). The following explanation is served from EduNex's verified curriculum knowledge base.\n\n"
+            return service_notice + mock
+        return mock
 
     def _generate_offline_mock(self, prompt: str, system_prompt: Optional[str]) -> str:
         """

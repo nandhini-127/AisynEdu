@@ -259,11 +259,13 @@ async def send_message(
         intent=assistant_msg.intent,
         token_count=assistant_msg.token_count or 0,
         latency_ms=assistant_msg.latency_ms or 0,
-        llm_provider=assistant_msg.llm_provider,
+        llm_provider=agent_result.get("llm_provider") or assistant_msg.llm_provider,
         created_at=assistant_msg.created_at,
         quiz_data=agent_result.get("quiz_data"),
         summary_data=agent_result.get("summary_data"),
         recommendations=agent_result.get("learning_recommendations"),
+        is_fallback=agent_result.get("is_fallback", False),
+        fallback_reason=agent_result.get("fallback_reason"),
     )
 
     return ApiResponse(
@@ -276,6 +278,8 @@ async def send_message(
             "router_reasoning": agent_result.get("router_reasoning", ""),
             "is_document_grounded": is_grounded,
             "safety_metadata": safety_meta,
+            "is_fallback": agent_result.get("is_fallback", False),
+            "fallback_reason": agent_result.get("fallback_reason"),
         },
     )
 

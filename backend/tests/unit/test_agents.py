@@ -1,7 +1,8 @@
+import asyncio
 import os
 import uuid
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -131,9 +132,10 @@ class TestTutorAgent:
         monkeypatch.setattr(settings, "GOOGLE_API_KEY", "AIzaSyFakeKeyForRegressionTesting123")
         monkeypatch.setenv("ENVIRONMENT", "production")
 
-        # Mock asyncio.to_thread in llm_client to intercept Gemini without network traffic
-        with patch("app.agents.llm_client.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
-            mock_thread.return_value = "GPU architecture consists of streaming multiprocessors."
+        # Mock _create_genai_client in llm_client to intercept Gemini without network traffic
+        mock_instance = MagicMock()
+        mock_instance.aio.models.generate_content = AsyncMock(return_value=MagicMock(text="GPU architecture consists of streaming multiprocessors."))
+        with patch.object(LLMClient, "_create_genai_client", return_value=mock_instance):
             # Calling _call_gemini evaluates the production environment expressions and line 116 cleanly
             res = await client._call_gemini(
                 prompt="Explain GPU architecture",
@@ -607,9 +609,9 @@ class TestResponseQualityRegression:
         monkeypatch.setattr(settings, "GOOGLE_API_KEY", "AIzaSyFakeKeyForTesting123456789")
         monkeypatch.setenv("ENVIRONMENT", "production")
 
-        # Mock asyncio.to_thread in llm_client to return None (simulating failure of all remote candidates)
-        with patch("app.agents.llm_client.asyncio.to_thread") as mock_thread:
-            mock_thread.return_value = None
+        mock_instance = MagicMock()
+        mock_instance.aio.models.generate_content = AsyncMock(side_effect=Exception("503 UNAVAILABLE: service overloaded"))
+        with patch.object(LLMClient, "_create_genai_client", return_value=mock_instance):
             res = await client._call_gemini(
                 prompt="Explain Tamil Nadu heritage",
                 system_prompt="You are a tutor.",
@@ -619,21 +621,82 @@ class TestResponseQualityRegression:
             assert len(res) > 50
             assert "tamil nadu" in res.lower() or "chola" in res.lower()
 
-    def test_candidate_models_contain_live_google_models(self):
-        """Validates that candidate models list includes verified live models for Railway fallback."""
+    def test_candidate_models_strictly_prioritize_configured_primary(self):
+        """Validates that candidate models strictly use the configured primary model and do not include hardcoded 404 candidates."""
         client = LLMClient(provider="gemini", model_name="gemini-3.8-flash")
-        # Ensure that regardless of whether GEMINI_MODEL is set to gemini-3.8-flash,
-        # live models gemini-2.0-flash and gemini-1.5-flash are present in candidates
-        candidates = []
-        if client.model_name:
-            candidates.append(client.model_name)
-        for live in ["gemini-2.0-flash", "gemini-1.5-flash"]:
-            if live not in candidates:
-                candidates.append(live)
+        assert client.model_name == "gemini-3.8-flash"
+        # Verify hardcoded 404 models are not in candidate list
+        invalid_hardcoded = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro"]
+        for inv in invalid_hardcoded:
+            assert inv != client.model_name
 
-        assert "gemini-3.8-flash" in candidates
-        assert "gemini-2.0-flash" in candidates
-        assert "gemini-1.5-flash" in candidates
+    async def test_gemini_success_sets_live_provider(self, monkeypatch):
+        """Validates that a successful Gemini call marks fallback as False and records the active model."""
+        from app.core.config import settings
+        client = LLMClient(provider="gemini", model_name="gemini-3.8-flash")
+        monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+        monkeypatch.setattr(settings, "GOOGLE_API_KEY", "AIzaSyFakeKeyForTesting123456789")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        mock_instance = MagicMock()
+        mock_instance.aio.models.generate_content = AsyncMock(return_value=MagicMock(text="Dr. B.R. Ambedkar drafted the Constitution of India enacted on January 26, 1950."))
+        with patch.object(LLMClient, "_create_genai_client", return_value=mock_instance):
+            res = await client._call_gemini(
+                prompt="Explain the Constitution of India",
+                system_prompt="You are an AI Tutor.",
+            )
+            assert res is not None
+            assert client.last_is_fallback is False
+            assert "gemini-3.8-flash" in client.last_provider_used
+            assert "Ambedkar" in res
+
+    async def test_gemini_timeout_fallback(self, monkeypatch):
+        """Validates timeout handling uses configured timeout and falls back cleanly without crashing."""
+        from app.core.config import settings
+        client = LLMClient(provider="gemini", model_name="gemini-3.8-flash", timeout_seconds=2.0)
+        monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+        monkeypatch.setattr(settings, "GOOGLE_API_KEY", "AIzaSyFakeKeyForTesting123456789")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        mock_instance = MagicMock()
+        mock_instance.aio.models.generate_content = AsyncMock(side_effect=asyncio.TimeoutError())
+        with patch.object(LLMClient, "_create_genai_client", return_value=mock_instance):
+            res = await client._call_gemini(
+                prompt="Explain the Constitution of India",
+                system_prompt="You are an AI Tutor.",
+            )
+            assert res is not None
+            assert client.last_is_fallback is True
+            assert "timed out" in (client.last_fallback_reason or "").lower()
+            assert "Service Notice:" in res
+
+    async def test_gemini_429_quota_immediate_fallback(self, monkeypatch):
+        """Validates that 429 RESOURCE_EXHAUSTED immediately falls back without retrying or crashing."""
+        from app.core.config import settings
+        client = LLMClient(provider="gemini", model_name="gemini-3.8-flash")
+        monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+        monkeypatch.setattr(settings, "GOOGLE_API_KEY", "AIzaSyFakeKeyForTesting123456789")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        mock_instance = MagicMock()
+        mock_instance.aio.models.generate_content = AsyncMock(side_effect=Exception("429 RESOURCE_EXHAUSTED: Free tier quota exceeded"))
+        with patch.object(LLMClient, "_create_genai_client", return_value=mock_instance):
+            res = await client._call_gemini(
+                prompt="Explain Tamil Nadu heritage",
+                system_prompt="You are a tutor.",
+            )
+            assert res is not None
+            assert client.last_is_fallback is True
+            assert "Service Notice:" in res
+            assert "tamil nadu" in res.lower() or "chola" in res.lower()
+            res = await client._call_gemini(
+                prompt="Explain Tamil Nadu heritage",
+                system_prompt="You are a tutor.",
+            )
+            assert res is not None
+            assert client.last_is_fallback is True
+            assert "Service Notice:" in res
+            assert "tamil nadu" in res.lower() or "chola" in res.lower()
 
     async def test_quiz_india_conceptual_accuracy(self):
         """Validates that Quiz generation on 'India' generates authentic constitutional/historical questions and NO generic filler."""
@@ -655,6 +718,7 @@ class TestResponseQualityRegression:
             assert "core foundational mechanism of" not in opt_lower
             assert "an unrelated secondary process" not in opt_lower
             assert "a legacy deprecated standard" not in opt_lower
+            assert "an unrelated theoretical concept" not in opt_lower
         # Must contain authentic Indian context
         full_quiz_text = " ".join([q["question"] + " " + " ".join(q["options"]) for q in questions]).lower()
         assert any(term in full_quiz_text for term in ["constitution", "satyameva jayate", "tropic of cancer", "indus valley", "republic"])

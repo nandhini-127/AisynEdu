@@ -180,6 +180,8 @@ class MessageRead(BaseModel):
     quiz_data: Optional[List[Dict[str, Any]]] = None
     summary_data: Optional[Dict[str, Any]] = None
     recommendations: Optional[List[str]] = None
+    is_fallback: bool = False
+    fallback_reason: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

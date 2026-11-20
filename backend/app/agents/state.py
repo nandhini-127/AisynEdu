@@ -82,4 +82,6 @@ class AgentState(TypedDict, total=False):
     max_iterations: int
     latency_ms: int
     error: Optional[str]
+    is_fallback: bool
+    fallback_reason: Optional[str]
 

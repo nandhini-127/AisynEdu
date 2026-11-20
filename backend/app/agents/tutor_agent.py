@@ -87,26 +87,17 @@ class TutorAgent:
 
         if not is_relevant and detected_domain:
             logger.warning(
-                "Topic drift detected for query '%s' (domain=%s): %s. Triggering corrective regeneration.",
+                "Topic drift detected for query '%s' (domain=%s): %s. Substituting topic-accurate educational explanation.",
                 query,
                 detected_domain,
                 drift_reason,
             )
-            corrective_prompt = (
-                f"CORRECTION: Your previous explanation drifted off-topic ({drift_reason}).\n"
-                f"The student asked: '{query}' under subject '{subject}'.\n"
-                f"You MUST focus EXCLUSIVELY on {detected_domain.replace('_', ' ').upper()} concepts.\n"
-                f"Do NOT mention unrelated topics or other domains.\n\n"
-                f"{user_prompt}"
+            # Avoid duplicate remote Gemini API calls that waste quota or trigger 429 errors;
+            # substitute with verified topic-accurate curriculum explanation.
+            response_text = client._get_fallback_response(
+                f"Subject: {subject}\nStudent Question: {query}",
+                TUTOR_SYSTEM_PROMPT,
             )
-            retry_text = await client.generate_response(
-                prompt=corrective_prompt,
-                system_prompt=TUTOR_SYSTEM_PROMPT,
-                temperature=0.1,
-            )
-            retry_text = cls._format_if_raw_json(retry_text)
-            if retry_text and len(retry_text.strip()) > 30:
-                response_text = retry_text
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
 
@@ -121,4 +112,7 @@ class TutorAgent:
             "is_document_grounded": False,
             "citations": [],
             "latency_ms": latency_ms,
+            "is_fallback": getattr(client, "last_is_fallback", False),
+            "fallback_reason": getattr(client, "last_fallback_reason", None),
+            "llm_provider": getattr(client, "last_provider_used", provider),
         }
