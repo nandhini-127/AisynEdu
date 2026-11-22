@@ -198,15 +198,8 @@ AisynEdu/
 │   └── ...
 │
 ├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── RAG_PIPELINE.md
-│   ├── API_DOCUMENTATION.md
-│   ├── DEPLOYMENT.md
-│   ├── TESTING.md
-│   └── screenshots/
-│
-├── demo/
-│   └── DEMO_VIDEO.md
+│   ├── demo
+│      ├── aisynedu-demo.mp4
 │
 ├── docker-compose.yml
 ├── docker-compose.prod.yml
