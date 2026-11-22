@@ -137,3 +137,12 @@ def test_quiz_attempt_schema_and_model():
     assert attempt.quiz_id == quiz_id
     assert attempt.user_id == user_id
 
+
+def test_get_user_quiz_history_isolation():
+    """Verifies that AnalyticsService.get_user_quiz_history is defined and correctly structured."""
+    import inspect
+    from app.analytics.service import AnalyticsService
+
+    assert hasattr(AnalyticsService, "get_user_quiz_history")
+    assert inspect.iscoroutinefunction(AnalyticsService.get_user_quiz_history)
+

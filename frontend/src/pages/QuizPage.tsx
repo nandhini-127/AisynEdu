@@ -23,8 +23,10 @@ import { QuizResultView } from '../components/quiz/QuizResultView';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
+import { useAuth } from '../context/AuthContext';
 
 export const QuizPage: React.FC = () => {
+  const { user } = useAuth();
   const [topic, setTopic] = useState('Operating Systems: Process Scheduling & Deadlocks');
   const [difficulty, setDifficulty] = useState<'beginner' | 'intermediate' | 'advanced'>('intermediate');
   const [questionCount, setQuestionCount] = useState(4);
@@ -40,17 +42,18 @@ export const QuizPage: React.FC = () => {
 
   useEffect(() => {
     const loadResources = async () => {
-      quizService.syncPendingQuizAttempts().catch(() => {});
-      const [docs, sessList] = await Promise.all([
+      quizService.syncPendingQuizAttempts(user?.id).catch(() => {});
+      const [docs, sessList, history] = await Promise.all([
         documentService.listDocuments().catch(() => []),
         chatService.listSessions().catch(() => []),
+        quizService.getQuizHistory(user?.id).catch(() => quizService.getCachedQuizHistory(user?.id)),
       ]);
       setDocuments(docs);
       setSessions(sessList);
-      setQuizHistory(quizService.getQuizHistory());
+      setQuizHistory(history);
     };
     loadResources();
-  }, []);
+  }, [user?.id]);
 
   const handleGenerateQuiz = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,7 +111,12 @@ export const QuizPage: React.FC = () => {
 
     const result = await quizService.submitQuiz({ quiz_id: activeQuiz.id, answers: userAnswers }, activeQuiz);
     setQuizResult(result);
-    setQuizHistory(quizService.getQuizHistory());
+    try {
+      const updatedHistory = await quizService.getQuizHistory(user?.id);
+      setQuizHistory(updatedHistory);
+    } catch {
+      setQuizHistory(quizService.getCachedQuizHistory(user?.id));
+    }
   };
 
   const handleResetQuiz = () => {

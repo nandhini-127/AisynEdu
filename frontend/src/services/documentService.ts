@@ -19,7 +19,11 @@ export const documentService = {
         'Content-Type': 'multipart/form-data',
       },
     });
-    return res.data?.data;
+    const payload = res.data?.data;
+    if (payload?.document) {
+      return payload.document;
+    }
+    return payload;
   },
 
   async getDocument(documentId: string): Promise<DocumentItem> {

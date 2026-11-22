@@ -53,29 +53,36 @@ export const DocumentsPage: React.FC = () => {
     }
   };
 
-  const handleDocumentUploaded = (newDoc: DocumentItem) => {
-    setDocuments((prev) => [newDoc, ...prev]);
+  const handleDocumentUploaded = (newDoc: any) => {
+    const docItem: DocumentItem = newDoc?.document || newDoc;
+    if (docItem && docItem.id) {
+      setDocuments((prev) => [docItem, ...prev.filter((d) => d.id !== docItem.id)]);
+    }
+    // Re-fetch in background to ensure all chunk details and statuses are synchronized
+    fetchDocuments();
   };
 
   // Unique subjects for filter
   const subjects = Array.from(
-    new Set(documents.map((d) => d.subject).filter(Boolean) as string[])
+    new Set(documents.map((d) => d?.subject).filter(Boolean) as string[])
   );
 
   const filteredDocuments = documents.filter((doc) => {
+    const filename = doc?.original_filename || '';
+    const subject = doc?.subject || '';
     const matchesSearch =
-      doc.original_filename.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (doc.subject && doc.subject.toLowerCase().includes(searchQuery.toLowerCase()));
+      filename.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      subject.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesSubject =
-      subjectFilter === 'all' || doc.subject === subjectFilter;
+      subjectFilter === 'all' || subject === subjectFilter;
 
     return matchesSearch && matchesSubject;
   });
 
-  const totalChunks = documents.reduce((acc, d) => acc + (d.chunk_count || 0), 0);
+  const totalChunks = documents.reduce((acc, d) => acc + (d?.chunk_count || 0), 0);
   const totalMB = (
-    documents.reduce((acc, d) => acc + (d.file_size_bytes || 0), 0) /
+    documents.reduce((acc, d) => acc + (d?.file_size_bytes || 0), 0) /
     (1024 * 1024)
   ).toFixed(1);
 

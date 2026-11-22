@@ -5,6 +5,20 @@ import { Quiz, QuizQuestion, QuizResult, QuizSubmission } from '../types/quiz';
 const QUIZ_STORAGE_KEY = 'edunex_saved_quizzes';
 const QUIZ_HISTORY_KEY = 'edunex_quiz_history';
 
+function getQuizHistoryKey(userId?: string): string {
+  if (userId) return `edunex_quiz_history_${userId}`;
+  try {
+    const raw = localStorage.getItem('edunex_user');
+    if (raw) {
+      const u = JSON.parse(raw);
+      if (u?.id) return `edunex_quiz_history_${u.id}`;
+    }
+  } catch {
+    // Ignore parse error
+  }
+  return 'edunex_quiz_history_anonymous';
+}
+
 /**
  * Normalizes an array of raw question dictionaries (e.g. from backend quiz_data or JSON extraction)
  * into typed QuizQuestion objects.
@@ -857,11 +871,13 @@ export const quizService = {
       synced: false,
     };
 
-    // Save to history immediately
+    const historyKey = getQuizHistoryKey();
+
+    // Save to user-scoped history cache immediately
     try {
-      const history = quizService.getQuizHistory();
+      const history = quizService.getCachedQuizHistory();
       localStorage.setItem(
-        QUIZ_HISTORY_KEY,
+        historyKey,
         JSON.stringify([historyItem, ...history])
       );
     } catch (e) {
@@ -883,12 +899,12 @@ export const quizService = {
         questions: quiz.questions,
       });
 
-      // Mark as synced in history
+      // Mark as synced in user-scoped history
       try {
-        const history = quizService.getQuizHistory();
+        const history = quizService.getCachedQuizHistory();
         if (history.length > 0 && history[0].quiz_id === quiz.id) {
           history[0].synced = true;
-          localStorage.setItem(QUIZ_HISTORY_KEY, JSON.stringify(history));
+          localStorage.setItem(historyKey, JSON.stringify(history));
         }
       } catch (e) {
         // Ignore
@@ -900,9 +916,10 @@ export const quizService = {
     return result;
   },
 
-  async syncPendingQuizAttempts(): Promise<void> {
+  async syncPendingQuizAttempts(userId?: string): Promise<void> {
+    const key = getQuizHistoryKey(userId);
     try {
-      const history = quizService.getQuizHistory();
+      const history = quizService.getCachedQuizHistory(userId);
       let updated = false;
 
       for (const item of history) {
@@ -927,16 +944,32 @@ export const quizService = {
       }
 
       if (updated) {
-        localStorage.setItem(QUIZ_HISTORY_KEY, JSON.stringify(history));
+        localStorage.setItem(key, JSON.stringify(history));
       }
     } catch {
       // Ignore
     }
   },
 
-  getQuizHistory(): any[] {
+  async getQuizHistory(userId?: string): Promise<any[]> {
+    const key = getQuizHistoryKey(userId);
     try {
-      const raw = localStorage.getItem(QUIZ_HISTORY_KEY);
+      const res = await apiClient.get('/analytics/quiz-history');
+      const serverHistory = res.data?.data;
+      if (Array.isArray(serverHistory)) {
+        localStorage.setItem(key, JSON.stringify(serverHistory));
+        return serverHistory;
+      }
+    } catch {
+      // Fallback to user-scoped local storage cache
+    }
+    return quizService.getCachedQuizHistory(userId);
+  },
+
+  getCachedQuizHistory(userId?: string): any[] {
+    const key = getQuizHistoryKey(userId);
+    try {
+      const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : [];
     } catch {
       return [];

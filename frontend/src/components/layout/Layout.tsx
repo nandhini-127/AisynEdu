@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Navbar } from './Navbar';
+import { ErrorBoundary } from '../common/ErrorBoundary';
 
 interface LayoutProps {
   title?: string;
@@ -24,7 +25,9 @@ export const Layout: React.FC<LayoutProps> = ({ title, subtitle }) => {
           subtitle={subtitle}
         />
         <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

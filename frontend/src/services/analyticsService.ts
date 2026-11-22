@@ -14,7 +14,7 @@ export const analyticsService = {
       const res = await apiClient.get('/analytics/student');
       if (res.data?.success && res.data?.data) {
         const d = res.data.data;
-        const localHistory = quizService.getQuizHistory();
+        const localHistory = quizService.getCachedQuizHistory();
         const totalQuizzes = Math.max(d.total_quizzes_completed || 0, localHistory.length);
 
         const localAvgScore =
@@ -67,12 +67,12 @@ export const analyticsService = {
         chatService.listSessions().catch(() => []),
       ]);
 
-      const quizHistory = quizService.getQuizHistory();
+      const quizHistory = quizService.getCachedQuizHistory();
 
       const totalQuizzes = quizHistory.length;
       const avgScore =
         totalQuizzes > 0
-          ? Math.round(quizHistory.reduce((acc, q) => acc + (q.percentage || 0), 0) / totalQuizzes)
+          ? Math.round(quizHistory.reduce((acc: number, q: any) => acc + (q.percentage || 0), 0) / totalQuizzes)
           : 85;
 
       const subjectCounts: Record<string, number> = {};

@@ -409,3 +409,35 @@ class AnalyticsService:
         deleted_count = res.rowcount or 0
         logger.info("Pruned %d expired analytics events older than %d days.", deleted_count, retention_days)
         return deleted_count
+
+    @classmethod
+    async def get_user_quiz_history(
+        cls, db: AsyncSession, user_id: uuid.UUID, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieves quiz attempts strictly belonging to user_id, ordered by completed_at descending.
+        Guarantees complete multi-tenant student data isolation.
+        """
+        query = (
+            select(QuizAttempt, Quiz)
+            .outerjoin(Quiz, QuizAttempt.quiz_id == Quiz.id)
+            .where(QuizAttempt.user_id == user_id)
+            .order_by(desc(QuizAttempt.completed_at))
+            .limit(limit)
+        )
+        rows = (await db.execute(query)).all()
+        history = []
+        for attempt, quiz in rows:
+            history.append({
+                "id": str(attempt.id),
+                "quiz_id": str(attempt.quiz_id) if attempt.quiz_id else None,
+                "title": quiz.title if quiz else "Quiz Attempt",
+                "topic": quiz.subject if quiz else "General Studies",
+                "difficulty": quiz.difficulty if quiz else "intermediate",
+                "score": attempt.score,
+                "total": attempt.max_score,
+                "percentage": attempt.percentage,
+                "timestamp": attempt.completed_at.isoformat() if attempt.completed_at else datetime.now(timezone.utc).isoformat(),
+                "synced": True,
+            })
+        return history

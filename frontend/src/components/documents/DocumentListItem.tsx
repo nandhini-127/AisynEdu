@@ -26,7 +26,9 @@ export const DocumentListItem: React.FC<DocumentListItemProps> = ({ document, on
   const navigate = useNavigate();
 
   const handleDelete = async () => {
-    if (!window.confirm(`Are you sure you want to delete "${document.original_filename}"?`)) return;
+    const filename = document?.original_filename || 'this document';
+    if (!document?.id) return;
+    if (!window.confirm(`Are you sure you want to delete "${filename}"?`)) return;
     setIsDeleting(true);
     try {
       await onDelete(document.id);
@@ -36,7 +38,7 @@ export const DocumentListItem: React.FC<DocumentListItemProps> = ({ document, on
   };
 
   const getStatusBadge = () => {
-    switch (document.status) {
+    switch (document?.status) {
       case 'ready':
         return (
           <Badge variant="success" size="sm" className="gap-1">
@@ -56,16 +58,20 @@ export const DocumentListItem: React.FC<DocumentListItemProps> = ({ document, on
           </Badge>
         );
       default:
-        return <Badge size="sm">{document.status}</Badge>;
+        return <Badge size="sm">{document?.status || 'ready'}</Badge>;
     }
   };
 
-  const formattedSize = (document.file_size_bytes / (1024 * 1024)).toFixed(2);
-  const formattedDate = new Date(document.created_at).toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  const filename = document?.original_filename || 'Untitled Document';
+  const sizeBytes = document?.file_size_bytes || 0;
+  const formattedSize = (sizeBytes / (1024 * 1024)).toFixed(2);
+  const formattedDate = document?.created_at
+    ? new Date(document.created_at).toLocaleDateString([], {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })
+    : 'Recently';
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all hover:shadow-sm">
@@ -76,12 +82,12 @@ export const DocumentListItem: React.FC<DocumentListItemProps> = ({ document, on
         <div className="overflow-hidden">
           <div className="flex items-center gap-2 mb-1">
             <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
-              {document.original_filename}
+              {filename}
             </h4>
             {getStatusBadge()}
           </div>
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-            {document.subject && (
+            {document?.subject && (
               <span className="font-medium text-primary-600 dark:text-primary-400">
                 {document.subject}
               </span>
@@ -90,7 +96,7 @@ export const DocumentListItem: React.FC<DocumentListItemProps> = ({ document, on
               <HardDrive className="w-3 h-3" /> {formattedSize} MB
             </span>
             <span className="flex items-center gap-1">
-              <Layers className="w-3 h-3" /> {document.chunk_count} Sections
+              <Layers className="w-3 h-3" /> {document?.chunk_count || 0} Sections
             </span>
             <span className="flex items-center gap-1">
               <Calendar className="w-3 h-3" /> {formattedDate}

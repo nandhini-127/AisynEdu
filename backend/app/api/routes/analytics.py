@@ -62,6 +62,24 @@ async def record_quiz_attempt(
     )
 
 
+@router.get("/quiz-history", response_model=ApiResponse)
+async def get_user_quiz_history(
+    limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retrieves recent quiz attempts strictly for the authenticated student.
+    Guarantees complete multi-tenant user isolation.
+    """
+    history = await AnalyticsService.get_user_quiz_history(db, current_user.id, limit=limit)
+    return ApiResponse(
+        success=True,
+        message=f"Retrieved {len(history)} quiz attempt(s).",
+        data=history,
+    )
+
+
 @router.get("/student", response_model=ApiResponse)
 async def get_student_telemetry(
     current_user: User = Depends(get_current_user),

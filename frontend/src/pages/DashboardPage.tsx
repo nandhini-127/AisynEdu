@@ -57,7 +57,7 @@ export const DashboardPage: React.FC = () => {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        quizService.syncPendingQuizAttempts().catch(() => {});
+        quizService.syncPendingQuizAttempts(user?.id).catch(() => {});
         const [sessData, docsData, statsData] = await Promise.all([
           chatService.listSessions().catch(() => []),
           documentService.listDocuments().catch(() => []),
@@ -91,7 +91,7 @@ export const DashboardPage: React.FC = () => {
     },
     {
       label: 'Quizzes Completed',
-      value: Math.max(analytics?.total_quizzes_completed || 0, quizService.getQuizHistory().length || 0),
+      value: Math.max(analytics?.total_quizzes_completed || 0, quizService.getCachedQuizHistory(user?.id).length || 0),
       icon: HelpCircle,
       color: 'text-amber-600 dark:text-amber-400',
       bg: 'bg-amber-50 dark:bg-amber-950/60',
