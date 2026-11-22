@@ -191,3 +191,24 @@ class ExportPDFRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=300, description="Notes topic or title")
     subject: Optional[str] = Field("General Studies", max_length=200, description="Academic subject")
     content: str = Field(..., min_length=1, description="Markdown formatted notes content")
+
+
+class StudyNoteCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=300, description="Study note topic or title")
+    subject: str = Field(default="General Studies", max_length=200, description="Academic subject")
+    content: str = Field(..., min_length=1, description="Markdown formatted study notes content")
+    document_id: Optional[UUID] = None
+
+
+class StudyNoteRead(BaseModel):
+    id: UUID
+    user_id: UUID
+    title: str
+    subject: str
+    content: str
+    document_id: Optional[UUID] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+

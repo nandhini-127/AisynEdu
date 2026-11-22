@@ -10,6 +10,7 @@ from app.models.entities import (
     RefreshToken,
     UploadedImage,
     AnalyticsEvent,
+    StudyNote,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "RefreshToken",
     "UploadedImage",
     "AnalyticsEvent",
+    "StudyNote",
 ]

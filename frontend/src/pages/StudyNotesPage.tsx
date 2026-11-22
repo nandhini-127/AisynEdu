@@ -18,23 +18,16 @@ import {
 } from 'lucide-react';
 import { chatService } from '../services/chatService';
 import { documentService } from '../services/documentService';
+import { notesService, SavedNote } from '../services/notesService';
+import { useAuth } from '../context/AuthContext';
 import { DocumentItem } from '../types/documents';
 import { ChatSession } from '../types/chat';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 
-interface SavedNote {
-  id: string;
-  title: string;
-  subject: string;
-  content: string;
-  created_at: string;
-}
-
-const NOTES_STORAGE_KEY = 'edunex_saved_study_notes';
-
 export const StudyNotesPage: React.FC = () => {
+  const { user } = useAuth();
   const [subject, setSubject] = useState('Computer Science');
   const [topic, setTopic] = useState('Database Indexing: B-Trees vs Hash Indexes');
   const [selectedDocId, setSelectedDocId] = useState('');
@@ -47,30 +40,42 @@ export const StudyNotesPage: React.FC = () => {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
     const init = async () => {
       const [docs, sessList] = await Promise.all([
         documentService.listDocuments().catch(() => []),
         chatService.listSessions().catch(() => []),
       ]);
+      if (!isMounted) return;
       setDocuments(docs);
       setSessions(sessList);
 
-      // Load saved notes
+      // Load saved notes for current authenticated user
       try {
-        const raw = localStorage.getItem(NOTES_STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          setSavedNotes(parsed);
-          if (parsed.length > 0) {
-            setCurrentNote(parsed[0]);
-          }
+        const userNotes = await notesService.listNotes(user?.id);
+        if (!isMounted) return;
+        setSavedNotes(userNotes);
+        if (userNotes.length > 0) {
+          setCurrentNote(userNotes[0]);
+        } else {
+          setCurrentNote(null);
         }
       } catch (e) {
-        // Ignore
+        if (!isMounted) return;
+        const cached = notesService.getCachedNotes(user?.id);
+        setSavedNotes(cached);
+        if (cached.length > 0) {
+          setCurrentNote(cached[0]);
+        } else {
+          setCurrentNote(null);
+        }
       }
     };
     init();
-  }, []);
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id]);
 
   const handleGenerateSummary = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,18 +105,18 @@ Include:
       });
 
       const noteContent = res.assistant_message?.content || 'No summary content generated.';
-      const newNote: SavedNote = {
-        id: `note-${Date.now()}`,
-        title: topic,
-        subject,
-        content: noteContent,
-        created_at: new Date().toISOString(),
-      };
+      const newNote = await notesService.createNote(
+        {
+          title: topic,
+          subject,
+          content: noteContent,
+          document_id: selectedDocId || undefined,
+        },
+        user?.id
+      );
 
       setCurrentNote(newNote);
-      const updated = [newNote, ...savedNotes];
-      setSavedNotes(updated);
-      localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(updated));
+      setSavedNotes((prev) => [newNote, ...prev.filter((n) => n.id !== newNote.id)]);
     } catch (err) {
       console.error('Failed to generate summary notes:', err);
       alert('Could not generate notes. Please verify backend connection.');
@@ -127,10 +132,10 @@ Include:
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDeleteNote = (id: string) => {
+  const handleDeleteNote = async (id: string) => {
+    await notesService.deleteNote(id, user?.id);
     const updated = savedNotes.filter((n) => n.id !== id);
     setSavedNotes(updated);
-    localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(updated));
     if (currentNote?.id === id) {
       setCurrentNote(updated[0] || null);
     }

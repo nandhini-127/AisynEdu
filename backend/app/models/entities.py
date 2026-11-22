@@ -56,6 +56,7 @@ class User(Base):
     documents: Mapped[List["Document"]] = relationship("Document", back_populates="user", cascade="all, delete-orphan")
     quizzes: Mapped[List["Quiz"]] = relationship("Quiz", back_populates="user", cascade="all, delete-orphan")
     refresh_tokens: Mapped[List["RefreshToken"]] = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    study_notes: Mapped[List["StudyNote"]] = relationship("StudyNote", back_populates="user", cascade="all, delete-orphan")
 
 
 class Session(Base):
@@ -303,4 +304,29 @@ class AnalyticsEvent(Base):
     )
 
     user: Mapped["User"] = relationship("User", backref="analytics_events")
+
+
+class StudyNote(Base):
+    __tablename__ = "study_notes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType, primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    subject: Mapped[str] = mapped_column(String(200), default="General Studies", nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUIDType, ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    user: Mapped["User"] = relationship("User", back_populates="study_notes")
 

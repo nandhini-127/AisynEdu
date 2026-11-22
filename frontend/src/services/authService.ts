@@ -1,5 +1,6 @@
 import apiClient from './api';
 import { AuthTokens, LoginPayload, RegisterPayload, User } from '../types/auth';
+import { notesService } from './notesService';
 
 export const authService = {
   async register(payload: RegisterPayload): Promise<{ user: User; tokens: AuthTokens }> {
@@ -47,10 +48,12 @@ export const authService = {
     } catch (e) {
       // Ignore network errors on logout
     } finally {
+      notesService.clearUserCache();
       localStorage.removeItem('edunex_access_token');
       localStorage.removeItem('edunex_refresh_token');
       localStorage.removeItem('edunex_user');
       localStorage.removeItem('edunex_streak_increased');
+      localStorage.removeItem('edunex_saved_study_notes');
     }
   },
 
