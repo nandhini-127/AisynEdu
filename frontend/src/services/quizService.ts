@@ -383,7 +383,169 @@ function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'inte
     ];
   }
 
-  // 6. Universal Educational Academic Fallback (for any other concept)
+  // 6. Operating Systems
+  if (/\b(operating system|operating systems|deadlock|process scheduling|semaphore|virtual memory|paging|context switch)\b/i.test(lower)) {
+    return [
+      {
+        id: 'q-1',
+        question: "Which condition is NOT one of Coffman's four necessary conditions for a system deadlock to occur?",
+        options: [
+          'Preemption of allocated resources by the operating system kernel',
+          'Mutual Exclusion',
+          'Hold and Wait',
+          'Circular Wait',
+        ],
+        explanation: "Resource preemption prevents deadlocks. Coffman's four conditions are: Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait.",
+        correct_index: 0,
+      },
+      {
+        id: 'q-2',
+        question: 'In CPU scheduling, what is the primary consequence of setting the Round Robin (RR) time quantum extremely small?',
+        options: [
+          'Interactive responsiveness improves, but context-switching CPU overhead increases substantially',
+          'The scheduling algorithm degenerates into First-Come, First-Served (FCFS)',
+          'Long-running processes suffer permanent starvation',
+          'The CPU utilization increases to near 100%',
+        ],
+        explanation: 'An extremely small time quantum gives high responsiveness to interactive tasks, but wastes substantial CPU clock cycles saving and loading process control blocks (context switching).',
+        correct_index: 0,
+      },
+      {
+        id: 'q-3',
+        question: 'What is the primary architectural purpose of a Translation Lookaside Buffer (TLB) in virtual memory systems?',
+        options: [
+          'A high-speed associative hardware cache that accelerates virtual-to-physical address translation',
+          'A kernel disk buffer for spooling asynchronous printer output',
+          'An interrupt controller for prioritized hardware device interrupts',
+          'A swap space partition manager on disk',
+        ],
+        explanation: 'The TLB caches recent virtual page number to physical frame mappings in high-speed hardware, avoiding memory lookups to the in-RAM page table on a TLB hit.',
+        correct_index: 0,
+      },
+      {
+        id: 'q-4',
+        question: 'How does a counting semaphore differ from a binary semaphore (mutex) in process synchronization?',
+        options: [
+          'A counting semaphore can take non-negative integer values representing available resource units, whereas a binary semaphore is restricted to 0 and 1',
+          'A counting semaphore cannot be shared across multiple threads',
+          'A binary semaphore does not support wait() and signal() operations',
+          'A counting semaphore automatically prevents priority inversion',
+        ],
+        explanation: 'Counting semaphores manage finite pools of multiple identical resource units (initialized to N), while binary semaphores provide mutual exclusion over a single resource (0 or 1).',
+        correct_index: 0,
+      },
+    ];
+  }
+
+  // 7. GPU Architecture
+  if (/\b(gpu|cuda|tensor core|vram|simt|streaming multiprocessor)\b/i.test(lower)) {
+    return [
+      {
+        id: 'q-1',
+        question: 'What is the primary architectural role of CUDA cores in modern GPU computing?',
+        options: [
+          'Executing massively parallel arithmetic logic operations across thousands of concurrent threads',
+          'Managing OS virtual memory page table translations',
+          'Serial instruction decoding and branch prediction',
+          'Controlling physical disk I/O interrupt channels',
+        ],
+        explanation: 'CUDA cores are the fundamental parallel arithmetic units in NVIDIA GPUs, processing integer and floating-point computations across thousands of threads.',
+        correct_index: 0,
+      },
+      {
+        id: 'q-2',
+        question: 'How do Tensor Cores differ from standard CUDA cores in modern GPUs?',
+        options: [
+          'Tensor Cores are specialized hardware accelerators optimized for mixed-precision matrix multiply-accumulate operations',
+          'Tensor Cores only process display outputs over HDMI and DisplayPort',
+          'Tensor Cores operate at lower clock speeds without supporting floating-point arithmetic',
+          'Tensor Cores replace the host CPU completely for system control',
+        ],
+        explanation: 'Tensor Cores execute matrix multiply-accumulate (MMA) operations in a single clock cycle, dramatically speeding up neural network workloads.',
+        correct_index: 0,
+      },
+      {
+        id: 'q-3',
+        question: 'Why is high VRAM memory bandwidth essential in GPU architectures?',
+        options: [
+          'Thousands of parallel arithmetic lanes require massive data throughput to prevent execution unit starvation',
+          'VRAM bandwidth determines the maximum disk seek rate of the host storage',
+          'High bandwidth completely eliminates the need for L1 and L2 caches',
+          'Bandwidth only affects network socket communications',
+        ],
+        explanation: 'Because GPUs execute thousands of threads concurrently, insufficient memory bandwidth starves arithmetic units waiting for data operands.',
+        correct_index: 0,
+      },
+      {
+        id: 'q-4',
+        question: 'What execution paradigm does a modern GPU Streaming Multiprocessor (SM) utilize?',
+        options: [
+          'Single Instruction, Multiple Threads (SIMT) grouped into warps',
+          'Single Instruction, Single Data (SISD) with deep out-of-order execution',
+          'Pure asynchronous message passing between independent CPU cores',
+          'Synchronous token ring arbitration across memory channels',
+        ],
+        explanation: 'NVIDIA GPU SMs execute using the SIMT model, where warps of 32 threads execute the same instruction in lockstep across parallel lanes.',
+        correct_index: 0,
+      },
+    ];
+  }
+
+  // 8. Machine Learning
+  if (/\b(machine learning|deep learning|supervised learning|unsupervised learning|neural network|gradient descent|overfitting)\b/i.test(lower)) {
+    return [
+      {
+        id: 'q-1',
+        question: 'What is the defining characteristic of Supervised Learning in machine learning?',
+        options: [
+          'Training datasets contain feature inputs mapped to known ground-truth target labels',
+          'The algorithm groups unannotated data based solely on distance metrics',
+          'An agent interacts with an environment receiving cumulative rewards',
+          'Models learn representations without access to data',
+        ],
+        explanation: 'Supervised learning algorithms infer a mapping function from training data that consists of paired input vectors and supervisory target labels.',
+        correct_index: 0,
+      },
+      {
+        id: 'q-2',
+        question: 'What distinguishes Classification from Regression tasks in machine learning?',
+        options: [
+          'Classification predicts discrete categorical class labels, whereas regression models continuous numeric quantities',
+          'Classification is unsupervised while regression is supervised',
+          'Regression only processes text data while classification processes images',
+          'Classification does not require feature matrices',
+        ],
+        explanation: 'Classification outputs discrete categorical labels, while regression outputs continuous numeric quantities.',
+        correct_index: 0,
+      },
+      {
+        id: 'q-3',
+        question: 'Which symptom characterizes an overfitted machine learning model?',
+        options: [
+          'Exceptional accuracy on training data but poor generalization on unseen validation data',
+          'High error on both training and validation sets simultaneously',
+          'Inability to minimize the loss function during gradient descent',
+          'Complete absence of learned parameters',
+        ],
+        explanation: 'Overfitting occurs when a high-capacity model memorizes noise in the training data, leading to low training error but high test error.',
+        correct_index: 0,
+      },
+      {
+        id: 'q-4',
+        question: 'What is the primary role of Gradient Descent in training model parameters?',
+        options: [
+          'Iteratively adjusting weights in the direction opposite to the gradient of the loss function to reach an optimum',
+          'Partitioning raw datasets into stratified folds',
+          'Encoding categorical string features into one-hot vectors',
+          'Calculating the geometric mean of dataset attributes',
+        ],
+        explanation: 'Gradient Descent calculates partial derivatives of the loss function with respect to weights and steps in the opposite direction to minimize loss.',
+        correct_index: 0,
+      },
+    ];
+  }
+
+  // 9. Universal Educational Academic Fallback (for any other concept)
   return [
     {
       id: 'q-1',

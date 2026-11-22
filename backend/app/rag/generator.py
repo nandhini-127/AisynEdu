@@ -18,10 +18,6 @@ def _is_transient_error(error: Exception) -> bool:
     """
     err_str = str(error).lower()
 
-    # Quota exhaustion must not be retried (daily quota exceeded)
-    if "resource_exhausted" in err_str or "quota" in err_str or "free_tier" in err_str:
-        return False
-
     # Permanent errors - NEVER retry
     permanent_indicators = [
         "400",
@@ -42,6 +38,11 @@ def _is_transient_error(error: Exception) -> bool:
 
     # Transient errors - retry with bounded backoff + jitter
     transient_indicators = [
+        "429",
+        "resource_exhausted",
+        "quota",
+        "rate limit",
+        "rate_limit",
         "503",
         "unavailable",
         "504",
@@ -259,12 +260,22 @@ class RAGGenerator:
         Prefers the official google.genai SDK; falls back to LangChain ONLY if google.genai is not installed.
         Enforces a 25-second per-request network timeout.
         """
-        # Candidate models strictly starting with configured primary model, with verified fallback
+        # Standard production candidate hierarchy:
+        # 1. gemini-3.5-flash-lite — primary
+        # 2. gemini-3.1-flash-lite — secondary
+        # 3. gemini-flash-lite-latest — tertiary
+        # 4. gemini-3.8-flash — last-resort fallback only
+        default_priority = [
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-flash-lite-latest",
+            "gemini-3.8-flash",
+        ]
         primary_model = (self.model_name or settings.GEMINI_MODEL or "gemini-3.5-flash-lite").strip()
-        fallback_model = getattr(settings, "GEMINI_FALLBACK_MODEL", "gemini-3.8-flash").strip()
         candidate_models = [primary_model]
-        if fallback_model and fallback_model not in candidate_models:
-            candidate_models.append(fallback_model)
+        for m in default_priority:
+            if m not in candidate_models:
+                candidate_models.append(m)
 
         # Primary: google.genai SDK
         try:

@@ -104,7 +104,7 @@ class RAGAgent:
             final_response = f"**[Referenced from Your Study Materials]**\n\n{raw_response}"
         else:
             final_response = (
-                f"**[General Academic Concept]**\n\n"
+                f"**[General Knowledge / Academic Concept]**\n\n"
                 f"*Note: None of your uploaded study materials contained direct sections for this topic, so here is a comprehensive educational breakdown:*\n\n"
                 f"{raw_response}"
             )

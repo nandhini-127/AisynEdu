@@ -97,12 +97,20 @@ class LLMClient:
                 data = res.json()
                 return data.get("message", {}).get("content", "").strip()
         except httpx.ConnectError as e:
+            if settings.ENVIRONMENT == "testing" or os.environ.get("ENVIRONMENT") == "testing":
+                raise ProviderUnavailableError(f"Ollama server unreachable at {url}: {str(e)}")
             logger.warning("Ollama unreachable at %s: %s. Falling back to topic-aware educational response engine.", url, str(e))
             return self._generate_offline_mock(prompt, system_prompt)
         except httpx.TimeoutException:
+            if settings.ENVIRONMENT == "testing" or os.environ.get("ENVIRONMENT") == "testing":
+                raise ProviderUnavailableError(f"Ollama request timed out after {self.timeout}s.")
             logger.warning("Ollama request timed out after %ds. Falling back to topic-aware educational engine.", self.timeout)
             return self._generate_offline_mock(prompt, system_prompt)
         except Exception as e:
+            if isinstance(e, ProviderUnavailableError):
+                raise
+            if settings.ENVIRONMENT == "testing" or os.environ.get("ENVIRONMENT") == "testing":
+                raise ProviderUnavailableError(f"Ollama execution failed: {str(e)}")
             logger.warning("Ollama execution failed (%s). Falling back to topic-aware educational engine.", str(e))
             return self._generate_offline_mock(prompt, system_prompt)
 
@@ -154,11 +162,22 @@ class LLMClient:
             self.last_provider_used = "offline-educational-engine"
             return self._generate_offline_mock(prompt, system_prompt)
 
+        # Standard production candidate hierarchy:
+        # 1. gemini-3.5-flash-lite — primary
+        # 2. gemini-3.1-flash-lite — secondary
+        # 3. gemini-flash-lite-latest — tertiary
+        # 4. gemini-3.8-flash — last-resort fallback only
+        default_priority = [
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-flash-lite-latest",
+            "gemini-3.8-flash",
+        ]
         primary_model = self.model_name or settings.GEMINI_MODEL or "gemini-3.5-flash-lite"
-        fallback_model = getattr(settings, "GEMINI_FALLBACK_MODEL", "gemini-3.8-flash")
         candidate_models: List[str] = [primary_model]
-        if fallback_model and fallback_model not in candidate_models:
-            candidate_models.append(fallback_model)
+        for m in default_priority:
+            if m not in candidate_models:
+                candidate_models.append(m)
 
         last_error_info: List[str] = []
         timeout_ms = int(self.timeout * 1000)
@@ -879,6 +898,62 @@ class LLMClient:
                         ],
                         "correct_answer": "A",
                         "explanation": "Gradient Descent calculates the partial derivatives of the loss function with respect to model parameters and steps in the opposite direction to minimize error.",
+                        "difficulty": "intermediate"
+                    }
+                ])
+
+            elif is_os:
+                return json.dumps([
+                    {
+                        "id": 1,
+                        "question": "Which condition is NOT one of Coffman's four necessary conditions for a system deadlock to occur?",
+                        "options": [
+                            "A) Preemption of allocated resources by the operating system kernel",
+                            "B) Mutual Exclusion",
+                            "C) Hold and Wait",
+                            "D) Circular Wait"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "Resource preemption prevents deadlocks. Coffman's four conditions are: Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait.",
+                        "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 2,
+                        "question": "In CPU scheduling, what is the primary consequence of setting the Round Robin (RR) time quantum extremely small?",
+                        "options": [
+                            "A) Interactive responsiveness improves, but context-switching CPU overhead increases substantially",
+                            "B) The scheduling algorithm degenerates into First-Come, First-Served (FCFS)",
+                            "C) Long-running processes suffer permanent starvation",
+                            "D) The CPU utilization increases to near 100%"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "An extremely small time quantum gives high responsiveness to interactive tasks, but wastes substantial CPU clock cycles saving and loading process control blocks (context switching).",
+                        "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 3,
+                        "question": "What is the primary architectural purpose of a Translation Lookaside Buffer (TLB) in virtual memory systems?",
+                        "options": [
+                            "A) A high-speed associative hardware cache that accelerates virtual-to-physical address translation",
+                            "B) A kernel disk buffer for spooling asynchronous printer output",
+                            "C) An interrupt controller for prioritized hardware device interrupts",
+                            "D) A swap space partition manager on disk"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "The TLB caches recent virtual page number to physical frame mappings in high-speed hardware, avoiding memory lookups to the in-RAM page table on a TLB hit.",
+                        "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 4,
+                        "question": "How does a counting semaphore differ from a binary semaphore (mutex) in process synchronization?",
+                        "options": [
+                            "A) A counting semaphore can take non-negative integer values representing available resource units, whereas a binary semaphore is restricted to 0 and 1",
+                            "B) A counting semaphore cannot be shared across multiple threads",
+                            "C) A binary semaphore does not support wait() and signal() operations",
+                            "D) A counting semaphore automatically prevents priority inversion"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "Counting semaphores manage finite pools of multiple identical resource units (initialized to N), while binary semaphores provide mutual exclusion over a single resource (0 or 1).",
                         "difficulty": "intermediate"
                     }
                 ])
