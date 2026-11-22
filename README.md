@@ -430,8 +430,6 @@ The application should be validated using the following test scenarios:
 | Docker deployment | Configured containers start successfully |
 | Production deployment | Application accessible online |
 
-Actual test results and known limitations should be documented in `docs/TESTING.md`.
-
 ---
 
 ## 🎥 14. Project Demonstration
@@ -478,7 +476,7 @@ B.Tech – Artificial Intelligence and Data Science
 
 ## 📄 17. License
 
-This project is intended for educational and demonstration purposes. Add an appropriate license after reviewing the licensing terms of the NEXIS SOLUTIONS LLMs codebase and its dependencies.
+This project is intended for educational and demonstration purposes.
 
 ---
 
