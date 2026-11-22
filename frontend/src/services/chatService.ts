@@ -62,6 +62,8 @@ export const chatService = {
       quiz_data: m.quiz_data,
       summary_data: m.summary_data,
       recommendations: m.recommendations,
+      is_fallback: m.is_fallback,
+      fallback_reason: m.fallback_reason,
     }));
   },
 

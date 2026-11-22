@@ -95,6 +95,7 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    GEMINI_FALLBACK_MODEL: str = "gemini-3.8-flash"
     LLM_TIMEOUT_SECONDS: float = 30.0
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2"

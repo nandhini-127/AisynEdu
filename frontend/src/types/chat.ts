@@ -18,6 +18,8 @@ export interface ChatMessage {
   quiz_data?: any[];
   summary_data?: any;
   recommendations?: string[];
+  is_fallback?: boolean;
+  fallback_reason?: string;
 }
 
 export interface ChatSession {

@@ -273,6 +273,9 @@ export const ChatPage: React.FC = () => {
                     quiz_data: asstData.quiz_data,
                     summary_data: asstData.summary_data,
                     recommendations: asstData.recommendations,
+                    model_used: asstData.llm_provider || m.model_used,
+                    is_fallback: asstData.is_fallback,
+                    fallback_reason: asstData.fallback_reason,
                   }
                 : m
             )

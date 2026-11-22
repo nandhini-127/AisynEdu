@@ -124,23 +124,29 @@ class LLMClient:
         """
         Calls Google Gemini API asynchronously using official google-genai SDK.
         Supports automatic candidate fallback across active supported models
-        (e.g. gemini-3.5-flash-lite, gemini-3.5-flash, gemini-3.8-flash, gemini-flash-latest).
+        (e.g. primary gemini-3.8-flash, verified fallback gemini-3.5-flash-lite).
         """
-        api_key = (
-            settings.GOOGLE_API_KEY
-            or (settings.__dict__.get("GEMINI_API_KEY") if hasattr(settings, "GEMINI_API_KEY") else "")
-            or ""
-        ).strip()
-        if not api_key:
-            api_key = os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", "")).strip()
+        # Collect candidate API keys without revealing them
+        api_keys_to_try: List[str] = []
+        for key_cand in [
+            settings.GOOGLE_API_KEY,
+            getattr(settings, "GEMINI_API_KEY", ""),
+            os.environ.get("GOOGLE_API_KEY", ""),
+            os.environ.get("GEMINI_API_KEY", ""),
+        ]:
+            cleaned = (key_cand or "").strip().strip("'\"")
+            if cleaned and cleaned not in api_keys_to_try:
+                api_keys_to_try.append(cleaned)
+
+        valid_keys = [
+            k for k in api_keys_to_try
+            if not (k.startswith("test") or k == "dummy-key-for-test" or "your_gemini_api_key_here" in k)
+        ]
 
         if (
-            not api_key
+            not valid_keys
             or settings.ENVIRONMENT == "testing"
             or os.environ.get("ENVIRONMENT") == "testing"
-            or api_key.startswith("test")
-            or api_key == "dummy-key-for-test"
-            or "your_gemini_api_key_here" in api_key
         ):
             logger.info("Using topic-aware educational response engine (no external Google API key configured or in test mode).")
             self.last_is_fallback = True
@@ -148,107 +154,135 @@ class LLMClient:
             self.last_provider_used = "offline-educational-engine"
             return self._generate_offline_mock(prompt, system_prompt)
 
-        primary_model = self.model_name or settings.GEMINI_MODEL or "gemini-3.8-flash"
+        primary_model = self.model_name or settings.GEMINI_MODEL or "gemini-3.5-flash-lite"
+        fallback_model = getattr(settings, "GEMINI_FALLBACK_MODEL", "gemini-3.8-flash")
         candidate_models: List[str] = [primary_model]
+        if fallback_model and fallback_model not in candidate_models:
+            candidate_models.append(fallback_model)
+
         last_error_info: List[str] = []
         timeout_ms = int(self.timeout * 1000)
 
-        os.environ["GEMINI_API_KEY"] = api_key
-        os.environ["GOOGLE_API_KEY"] = api_key
+        for api_key in valid_keys:
+            os.environ["GEMINI_API_KEY"] = api_key
+            os.environ["GOOGLE_API_KEY"] = api_key
 
-        try:
-            if types is None:
-                raise ImportError("google.genai.types is not available.")
+            try:
+                if types is None:
+                    raise ImportError("google.genai.types is not available.")
 
-            client = self._create_genai_client(api_key=api_key, timeout_ms=timeout_ms)
+                client = self._create_genai_client(api_key=api_key, timeout_ms=timeout_ms)
 
-            config = types.GenerateContentConfig(
-                temperature=temperature,
-                system_instruction=system_prompt if system_prompt else None,
-            )
+                config = types.GenerateContentConfig(
+                    temperature=temperature,
+                    system_instruction=system_prompt if system_prompt else None,
+                )
 
-            idx = 0
-            while idx < len(candidate_models):
-                model_candidate = candidate_models[idx]
-                idx += 1
+                idx = 0
+                while idx < len(candidate_models):
+                    model_candidate = candidate_models[idx]
+                    idx += 1
 
-                for attempt in range(2):  # At most 1 retry for transient 503/504
-                    try:
-                        start_gen = time.perf_counter()
-                        # Native asynchronous call using client.aio
-                        call_coro = client.aio.models.generate_content(
-                            model=model_candidate,
-                            contents=[prompt],
-                            config=config,
-                        )
-                        res = await asyncio.wait_for(call_coro, timeout=self.timeout)
-                        raw_text = getattr(res, "text", "")
-                        if not raw_text and hasattr(res, "candidates") and res.candidates:
-                            parts = getattr(res.candidates[0].content, "parts", [])
-                            raw_text = "".join(getattr(p, "text", "") for p in parts)
-                        clean_text = extract_text_from_gemini_response(raw_text or res)
-                        if clean_text:
-                            latency = int((time.perf_counter() - start_gen) * 1000)
-                            logger.info(
-                                "Gemini generation succeeded with model '%s' (latency=%dms, tokens~=%d)",
-                                model_candidate,
-                                latency,
-                                len(clean_text.split()),
+                    # Allocate per-candidate timeout: give primary candidate up to 15s before failing over to healthy fallback
+                    has_further_fallback = (idx < len(candidate_models))
+                    cand_timeout = min(self.timeout, 15.0) if has_further_fallback else self.timeout
+
+                    for attempt in range(2):
+                        try:
+                            start_gen = time.perf_counter()
+                            call_coro = client.aio.models.generate_content(
+                                model=model_candidate,
+                                contents=[prompt],
+                                config=config,
                             )
-                            self.last_is_fallback = False
-                            self.last_fallback_reason = None
-                            self.last_provider_used = f"gemini ({model_candidate})"
-                            return clean_text.strip()
-                    except asyncio.TimeoutError:
-                        logger.warning("Gemini model '%s' timed out after %.1fs.", model_candidate, self.timeout)
-                        last_error_info.append(f"{model_candidate}: Request timed out after {int(self.timeout)}s")
-                        break  # Immediately fallback on timeout without cascading across models
-                    except Exception as ex:
-                        err_str = str(ex).lower()
-                        last_error_info.append(f"{model_candidate}: {str(ex)}")
+                            res = await asyncio.wait_for(call_coro, timeout=cand_timeout)
+                            raw_text = getattr(res, "text", "")
+                            if not raw_text and hasattr(res, "candidates") and res.candidates:
+                                parts = getattr(res.candidates[0].content, "parts", [])
+                                raw_text = "".join(getattr(p, "text", "") for p in parts)
+                            clean_text = extract_text_from_gemini_response(raw_text or res)
+                            if clean_text:
+                                latency = int((time.perf_counter() - start_gen) * 1000)
+                                logger.info(
+                                    "Gemini generation succeeded with model '%s' (latency=%dms, tokens~=%d)",
+                                    model_candidate,
+                                    latency,
+                                    len(clean_text.split()),
+                                )
+                                self.last_is_fallback = False
+                                self.last_fallback_reason = None
+                                self.last_provider_used = f"gemini ({model_candidate})"
+                                return clean_text.strip()
+                        except asyncio.TimeoutError:
+                            logger.warning(
+                                "Gemini model '%s' timed out after %.1fs.%s",
+                                model_candidate,
+                                cand_timeout,
+                                f" Failing over to next candidate '{candidate_models[idx]}'..." if has_further_fallback else "",
+                            )
+                            last_error_info.append(f"{model_candidate}: Request timed out after {int(cand_timeout)}s")
+                            break  # Move to next candidate model
+                        except Exception as ex:
+                            err_str = str(ex).lower()
+                            last_error_info.append(f"{model_candidate}: {str(ex)}")
 
-                        if "404" in err_str or "not_found" in err_str or "not available" in err_str or "is not found" in err_str:
-                            logger.warning("Gemini model '%s' returned 404/Not Found.", model_candidate)
-                            if api_key not in _VERIFIED_GEMINI_MODELS:
-                                try:
-                                    verified = []
-                                    async for m in client.aio.models.list():
-                                        m_name = getattr(m, "name", "")
-                                        if m_name.startswith("models/"):
-                                            m_name = m_name[len("models/"):]
-                                        if "gemini" in m_name and m_name not in candidate_models:
-                                            verified.append(m_name)
-                                    _VERIFIED_GEMINI_MODELS[api_key] = verified
-                                    logger.info("Dynamically verified available Gemini models for API key: %s", verified)
-                                except Exception as list_err:
-                                    logger.warning("Could not list verified models from Google GenAI API: %s", list_err)
-                                    _VERIFIED_GEMINI_MODELS[api_key] = []
+                            if "404" in err_str or "not_found" in err_str or "not available" in err_str or "is not found" in err_str:
+                                logger.warning("Gemini model '%s' returned 404/Not Found.", model_candidate)
+                                if api_key not in _VERIFIED_GEMINI_MODELS:
+                                    try:
+                                        verified = []
+                                        async for m in client.aio.models.list():
+                                            m_name = getattr(m, "name", "")
+                                            if m_name.startswith("models/"):
+                                                m_name = m_name[len("models/"):]
+                                            if "gemini" in m_name and m_name not in candidate_models:
+                                                verified.append(m_name)
+                                        _VERIFIED_GEMINI_MODELS[api_key] = verified
+                                    except Exception as list_err:
+                                        logger.warning("Could not list verified models from Google GenAI API: %s", list_err)
+                                        _VERIFIED_GEMINI_MODELS[api_key] = []
 
-                            verified_list = _VERIFIED_GEMINI_MODELS.get(api_key, [])
-                            for v_model in verified_list:
-                                if v_model not in candidate_models:
-                                    candidate_models.append(v_model)
+                                verified_list = _VERIFIED_GEMINI_MODELS.get(api_key, [])
+                                for v_model in verified_list:
+                                    if v_model not in candidate_models:
+                                        candidate_models.append(v_model)
+                                        break
+                                break
+
+                            elif "resource_exhausted" in err_str or "quota exceeded" in err_str or "free_tier_requests" in err_str or "quota" in err_str:
+                                logger.warning("Gemini API quota exhausted for model '%s' (429 RESOURCE_EXHAUSTED).", model_candidate)
+                                if has_further_fallback:
+                                    logger.info("Attempting next candidate model '%s' before educational fallback...", candidate_models[idx])
                                     break
-                            break
+                                else:
+                                    self.last_is_fallback = True
+                                    self.last_fallback_reason = "Google Gemini API rate limit or quota exceeded (429 RESOURCE_EXHAUSTED). Please try again shortly or use offline mode."
+                                    self.last_provider_used = "offline-grounded-fallback"
+                                    return self._get_fallback_response(prompt, system_prompt)
 
-                        elif "resource_exhausted" in err_str or "quota exceeded" in err_str or "free_tier_requests" in err_str or "quota" in err_str:
-                            logger.warning("Gemini API quota exhausted (429 RESOURCE_EXHAUSTED). Immediate fallback to educational response engine.")
-                            self.last_is_fallback = True
-                            self.last_fallback_reason = "Google Gemini API rate limit or quota exceeded (429 RESOURCE_EXHAUSTED). Please try again shortly or use offline mode."
-                            self.last_provider_used = "offline-grounded-fallback"
-                            return self._get_fallback_response(prompt, system_prompt)
+                            elif ("503" in err_str or "unavailable" in err_str or "504" in err_str or "deadline" in err_str):
+                                if has_further_fallback:
+                                    logger.warning(
+                                        "Gemini model '%s' temporarily unavailable (%s). Failing over immediately to '%s'...",
+                                        model_candidate,
+                                        str(ex),
+                                        candidate_models[idx],
+                                    )
+                                    break  # Failover immediately without waiting on overloaded model
+                                elif attempt == 0:
+                                    backoff = 1.5 * (2 ** attempt) + random.uniform(0.2, 0.5)
+                                    logger.warning("Gemini model '%s' transient error (%s). Retrying in %.2fs with jitter...", model_candidate, str(ex), backoff)
+                                    await asyncio.sleep(backoff)
+                                else:
+                                    break
+                            else:
+                                logger.warning("Gemini model '%s' unrecoverable error: %s", model_candidate, str(ex))
+                                break
 
-                        elif ("503" in err_str or "unavailable" in err_str or "504" in err_str or "deadline" in err_str) and attempt == 0:
-                            backoff = 1.5 * (2 ** attempt) + random.uniform(0.2, 0.5)
-                            logger.warning("Gemini model '%s' transient error (%s). Retrying in %.2fs with jitter...", model_candidate, str(ex), backoff)
-                            await asyncio.sleep(backoff)
-                        else:
-                            logger.warning("Gemini model '%s' unrecoverable error: %s", model_candidate, str(ex))
-                            break
-
-        except Exception as outer_ex:
-            last_error_info.append(f"Client error: {str(outer_ex)}")
-            logger.warning("Gemini execution failed: %s", str(outer_ex))
+            except Exception as outer_ex:
+                last_error_info.append(f"Client error: {str(outer_ex)}")
+                logger.warning("Gemini execution failed for configured API key: %s", str(outer_ex))
+                continue
 
         err_summary = "; ".join(last_error_info[-2:]) if last_error_info else "quota/timeout"
         logger.warning("Remote Gemini generation unavailable (%s). Serving topic-aware educational response.", err_summary)

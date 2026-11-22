@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { Bot, CheckCircle2, ChevronRight, HelpCircle, Sparkles, User } from 'lucide-react';
+import { AlertTriangle, Bot, CheckCircle2, ChevronRight, HelpCircle, Sparkles, User } from 'lucide-react';
 import { ChatMessage as ChatMessageType } from '../../types/chat';
 import { CitationBadge } from './CitationBadge';
 import { Badge } from '../common/Badge';
@@ -72,14 +72,24 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, onSelectTopic
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
-            <div className="prose dark:prose-invert prose-sm max-w-none prose-pre:bg-slate-950 prose-pre:border prose-pre:border-slate-800 prose-headings:font-bold prose-headings:text-slate-900 dark:prose-headings:text-slate-100">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm, remarkMath]}
-                rehypePlugins={[rehypeKatex]}
-              >
-                {message.content}
-              </ReactMarkdown>
-            </div>
+            <>
+              {message.is_fallback && (
+                <div className="mb-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+                  <span>
+                    {message.fallback_reason || 'Live AI generation is temporarily unavailable. Showing topic-aware curriculum explanation.'}
+                  </span>
+                </div>
+              )}
+              <div className="prose dark:prose-invert prose-sm max-w-none prose-pre:bg-slate-950 prose-pre:border prose-pre:border-slate-800 prose-headings:font-bold prose-headings:text-slate-900 dark:prose-headings:text-slate-100">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm, remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
+                >
+                  {message.content}
+                </ReactMarkdown>
+              </div>
+            </>
           )}
 
           {/* Embedded Quiz Data */}

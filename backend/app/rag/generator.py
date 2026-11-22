@@ -144,7 +144,7 @@ class RAGGenerator:
             or os.environ.get("GEMINI_API_KEY", "")
             or ""
         ).strip().strip("'\"")
-        self.model_name = (model_name or settings.GEMINI_MODEL or "gemini-3.8-flash").strip().strip("'\"")
+        self.model_name = (model_name or settings.GEMINI_MODEL or "gemini-3.5-flash-lite").strip().strip("'\"")
 
     def build_context_prompt(self, query: str, chunks: List[Dict[str, Any]]) -> str:
         """
@@ -259,15 +259,19 @@ class RAGGenerator:
         Prefers the official google.genai SDK; falls back to LangChain ONLY if google.genai is not installed.
         Enforces a 25-second per-request network timeout.
         """
-        # Candidate models strictly starting with configured primary model (no hardcoded 404 candidates)
-        candidate_models = [self.model_name] if self.model_name else ["gemini-3.8-flash"]
+        # Candidate models strictly starting with configured primary model, with verified fallback
+        primary_model = (self.model_name or settings.GEMINI_MODEL or "gemini-3.5-flash-lite").strip()
+        fallback_model = getattr(settings, "GEMINI_FALLBACK_MODEL", "gemini-3.8-flash").strip()
+        candidate_models = [primary_model]
+        if fallback_model and fallback_model not in candidate_models:
+            candidate_models.append(fallback_model)
 
         # Primary: google.genai SDK
         try:
             from google import genai
             client = genai.Client(
                 api_key=self.api_key,
-                http_options={"timeout": 25000},  # 25s bounded request timeout
+                http_options={"timeout": 20000},  # 20s bounded request timeout
             )
             idx = 0
             while idx < len(candidate_models):
@@ -284,8 +288,24 @@ class RAGGenerator:
                     return extracted, f"gemini ({candidate})"
                 except Exception as ex:
                     err_str = str(ex).lower()
-                    if "404" in err_str or "not_found" in err_str or "not available" in err_str or "is not found" in err_str:
-                        logger.warning("RAGGenerator: model candidate '%s' returned 404. Checking dynamically verified models.", candidate)
+                    if (
+                        "404" in err_str
+                        or "not_found" in err_str
+                        or "not available" in err_str
+                        or "is not found" in err_str
+                        or "503" in err_str
+                        or "unavailable" in err_str
+                        or "504" in err_str
+                        or "deadline" in err_str
+                        or "timeout" in err_str
+                    ):
+                        logger.warning(
+                            "RAGGenerator: model candidate '%s' error (%s). Failing over...",
+                            candidate,
+                            str(ex),
+                        )
+                        if idx < len(candidate_models):
+                            continue
                         try:
                             for m in client.models.list():
                                 m_name = getattr(m, "name", "").replace("models/", "")
