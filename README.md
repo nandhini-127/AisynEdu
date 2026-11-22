@@ -434,26 +434,7 @@ Actual test results and known limitations should be documented in `docs/TESTING.
 
 ---
 
-## 📸 14. Application Screenshots
-
-1. Dashboard
-2. AI Tutor
-3. Document Library
-4. PDF upload and RAG response
-5. Quiz Center
-6. Study Notes
-7. Analytics Dashboard
-8. User Profile
-
-Example:
-
-```markdown
-![AisynEdu Dashboard](docs/screenshots/dashboard.png)
-```
-
----
-
-## 🎥 15. Project Demonstration
+## 🎥 14. Project Demonstration
 
 A video demonstration will showcase:
 
@@ -471,7 +452,7 @@ A video demonstration will showcase:
 
 ---
 
-## 🚀 16. Future Enhancements
+## 🚀 15. Future Enhancements
 
 - Advanced multimodal question answering.
 - Improved long-term conversational memory.
@@ -483,7 +464,7 @@ A video demonstration will showcase:
 
 ---
 
-## 👩‍💻 17. Author
+## 👩‍💻 16. Author
 
 **Nandhini S S**
 
@@ -495,7 +476,7 @@ B.Tech – Artificial Intelligence and Data Science
 
 ---
 
-## 📄 18. License
+## 📄 17. License
 
 This project is intended for educational and demonstration purposes. Add an appropriate license after reviewing the licensing terms of the NEXIS SOLUTIONS LLMs codebase and its dependencies.
 
