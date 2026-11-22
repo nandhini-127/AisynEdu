@@ -208,6 +208,7 @@ class EduNexAssistant:
         llm_provider: str = "gemini",
         model_name: Optional[str] = None,
         previous_messages: Optional[list] = None,
+        question_count: Optional[int] = None,
     ) -> AgentState:
         """
         Executes a student turn through the LangGraph agent workflow with conversation threading.
@@ -227,6 +228,7 @@ class EduNexAssistant:
             "input_query": query,
             "requested_intent": requested_intent,
             "difficulty": difficulty,
+            "question_count": question_count,
             "document_ids": [str(d) for d in (document_ids or [])],
             "llm_provider": llm_provider,
             "model_name": model_name or "",

@@ -180,6 +180,7 @@ async def send_message(
             document_ids=combined_doc_ids,
             llm_provider=chosen_provider,
             previous_messages=previous_lc_messages,
+            question_count=msg_in.question_count,
         )
     except ProviderUnavailableError as e:
         raise HTTPException(
@@ -353,6 +354,7 @@ async def stream_message(
                 document_ids=combined_doc_ids,
                 llm_provider=chosen_provider,
                 previous_messages=previous_lc_messages,
+                question_count=msg_in.question_count,
             )
 
             resolved_intent = agent_result.get("resolved_intent", msg_in.intent)

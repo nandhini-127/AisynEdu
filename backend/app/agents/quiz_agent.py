@@ -16,6 +16,16 @@ class QuizAgent:
     storing correct answers separately, and providing pedagogical explanations.
     """
 
+    @staticmethod
+    def _is_similar_question(q1: str, q2: str) -> bool:
+        """Checks word overlap between two questions to avoid duplicate items."""
+        w1 = set(re.findall(r"\w+", q1.lower()))
+        w2 = set(re.findall(r"\w+", q2.lower()))
+        if not w1 or not w2:
+            return False
+        overlap = len(w1 & w2) / max(len(w1), len(w2))
+        return overlap > 0.75
+
     @classmethod
     async def execute(cls, state: AgentState) -> Dict:
         start_time = time.perf_counter()
@@ -26,12 +36,49 @@ class QuizAgent:
         provider = state.get("llm_provider", "gemini")
         model = state.get("model_name")
 
+        # Determine target question count from state or extract from user prompt
+        count = state.get("question_count")
+        if not count:
+            match = re.search(
+                r"(\d+)\s*(?:multiple choice questions|questions|mcqs|practice questions)",
+                query,
+                re.IGNORECASE,
+            )
+            if match:
+                try:
+                    count = int(match.group(1))
+                except (ValueError, TypeError):
+                    count = None
+        if not count or count < 1:
+            count = 4
+        count = max(1, min(count, 10))
+
+        # Extract clean topic if query has a prompt wrapper
+        clean_topic = query
+        topic_match = re.search(r'topic:\s*["\']?([^"\']+)["\']?', query, re.IGNORECASE)
+        if topic_match:
+            clean_topic = topic_match.group(1).strip()
+        else:
+            clean_topic = re.sub(
+                r"^(?:generate|create|give me|make)\s+(?:a|an)?\s*(?:\w+\s+)?(?:difficulty\s+)?quiz\s+(?:with\s+\d+\s+questions\s+)?(?:on|for|about)?\s*[:\-]?\s*",
+                "",
+                clean_topic,
+                flags=re.IGNORECASE,
+            ).strip()
+            clean_topic = re.sub(
+                r"\.?\s*provide\s+\d+\s+clear\s+options.*$",
+                "",
+                clean_topic,
+                flags=re.IGNORECASE,
+            ).strip()
+        clean_topic = clean_topic or query
+
         prompt = build_quiz_prompt(
-            query=query,
+            query=clean_topic,
             subject=subject,
             difficulty=difficulty,
             context=context,
-            count=3,
+            count=count,
         )
 
         client = LLMClient(provider=provider, model_name=model)
@@ -41,7 +88,69 @@ class QuizAgent:
             temperature=0.3,
         )
 
-        quiz_questions = cls._parse_quiz_json(raw_output, difficulty, query, subject)
+        quiz_questions = cls._parse_quiz_json(raw_output, difficulty, clean_topic, subject)
+
+        # If model returned fewer questions than requested, attempt follow-up generation for the deficit
+        if len(quiz_questions) < count and getattr(client, "last_provider_used", "") != "offline-educational-engine":
+            missing_count = count - len(quiz_questions)
+            existing_questions_text = "\n".join([f"- {q['question']}" for q in quiz_questions])
+            follow_up_prompt = (
+                f"Subject: {subject}\n"
+                f"Target Topic: {clean_topic}\n"
+                f"Difficulty: {difficulty}\n"
+                f"Existing Questions already generated:\n{existing_questions_text}\n\n"
+                f"Generate exactly {missing_count} MORE new and distinct multiple choice questions strictly testing '{clean_topic}'. "
+                f"Do not duplicate the existing questions above. Return valid JSON only matching the schema."
+            )
+            try:
+                supp_output = await client.generate_response(
+                    prompt=follow_up_prompt,
+                    system_prompt=QUIZ_SYSTEM_PROMPT,
+                    temperature=0.4,
+                )
+                supp_questions = cls._parse_quiz_json(supp_output, difficulty, clean_topic, subject)
+                for sq in supp_questions:
+                    if len(quiz_questions) >= count:
+                        break
+                    if not any(cls._is_similar_question(sq["question"], eq["question"]) for eq in quiz_questions):
+                        quiz_questions.append(sq)
+            except Exception as e:
+                logger.warning("Follow-up quiz generation for missing questions failed: %s", str(e))
+
+        # If still fewer questions than requested, supplement from topic-aware offline questions
+        if len(quiz_questions) < count:
+            try:
+                fallback_client = LLMClient()
+                fallback_raw = fallback_client._generate_offline_mock(
+                    f"Subject: {subject}\nTarget Topic: {clean_topic}",
+                    "quiz multiple choice",
+                )
+                fallback_match = re.search(r"\[.*\]", fallback_raw, re.DOTALL)
+                if fallback_match:
+                    fallback_data = json.loads(fallback_match.group(0))
+                    for item in fallback_data:
+                        if len(quiz_questions) >= count:
+                            break
+                        f_q = QuizQuestionDict(
+                            id=len(quiz_questions) + 1,
+                            question=str(item.get("question", "")),
+                            options=list(item.get("options", [])),
+                            correct_answer=str(item.get("correct_answer", "A")).upper().strip()[:1],
+                            explanation=str(item.get("explanation", "")),
+                            difficulty=str(item.get("difficulty", difficulty)),
+                        )
+                        if not any(cls._is_similar_question(f_q["question"], eq["question"]) for eq in quiz_questions):
+                            quiz_questions.append(f_q)
+            except Exception as e:
+                logger.warning("Fallback quiz supplementation encountered issue: %s", str(e))
+
+        # Ensure exact requested count
+        if len(quiz_questions) > count:
+            quiz_questions = quiz_questions[:count]
+
+        # Ensure all question IDs are sequential and unique (1..count)
+        for idx, q in enumerate(quiz_questions, 1):
+            q["id"] = idx
 
         # Build readable student presentation
         formatted_text = cls._format_quiz_markdown(quiz_questions, subject, difficulty)
@@ -49,8 +158,9 @@ class QuizAgent:
         latency_ms = int((time.perf_counter() - start_time) * 1000)
 
         logger.info(
-            "QuizAgent generated %d questions (difficulty=%s, latency=%dms)",
+            "QuizAgent generated %d questions (target=%d, difficulty=%s, latency=%dms)",
             len(quiz_questions),
+            count,
             difficulty,
             latency_ms,
         )

@@ -45,6 +45,7 @@ class AgentState(TypedDict, total=False):
     input_query: str
     requested_intent: str       # "auto" | "tutor" | "rag" | "quiz" | "summarize" | "learning_assistant"
     difficulty: str             # "beginner" | "intermediate" | "advanced"
+    question_count: Optional[int] # Explicit number of questions for quizzes
     document_ids: List[str]     # Scoped documents for RAG, Quizzes, or Summarization
 
     # ── Model & Provider Configuration ─────────────────────────────────

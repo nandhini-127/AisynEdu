@@ -162,6 +162,7 @@ class MessageCreate(BaseModel):
     content: str = Field(..., min_length=1)
     intent: str = "auto"
     difficulty: str = "intermediate"
+    question_count: Optional[int] = None
     document_ids: List[UUID] = []
     llm_override: Optional[str] = None
 

@@ -8,6 +8,7 @@ export interface SendMessageParams {
   difficulty?: 'beginner' | 'intermediate' | 'advanced';
   document_ids?: string[];
   llm_override?: 'gemini' | 'ollama';
+  question_count?: number;
 }
 
 export interface SendMessageResponse {
@@ -75,6 +76,7 @@ export const chatService = {
       difficulty: params.difficulty || 'intermediate',
       document_ids: params.document_ids || [],
       llm_override: params.llm_override,
+      question_count: params.question_count,
     });
     return res.data?.data;
   },
@@ -104,6 +106,7 @@ export const chatService = {
         difficulty: params.difficulty || 'intermediate',
         document_ids: params.document_ids || [],
         llm_override: params.llm_override,
+        question_count: params.question_count,
       }),
       signal,
     });

@@ -510,8 +510,23 @@ class LLMClient:
 
         # ── 2. QUIZ GENERATION ───────────────────────────────────────────
         if "quiz" in sys_lower or "multiple choice" in sys_lower:
+            target_count = 4
+            count_match = re.search(r"(?:Number of Questions:\s*|with\s+)(\d+)", prompt, re.IGNORECASE)
+            if count_match:
+                try:
+                    target_count = int(count_match.group(1))
+                except (ValueError, TypeError):
+                    pass
+            target_count = max(1, min(target_count, 10))
+
+            def format_quiz_output(q_list: list) -> str:
+                sliced = q_list[:target_count]
+                for idx, q in enumerate(sliced, 1):
+                    q["id"] = idx
+                return json.dumps(sliced)
+
             if is_tamil_nadu:
-                return json.dumps([
+                return format_quiz_output([
                     {
                         "id": 1,
                         "question": "Which historic Hindu temple located in Thanjavur, Tamil Nadu was built by King Rajaraja Chola I and is renowned for its monumental Dravidian vimana tower?",
@@ -563,11 +578,24 @@ class LLMClient:
                         "correct_answer": "A",
                         "explanation": "Pongal is the major harvest festival celebrated in Tamil Nadu during the Tamil month of Thai (mid-January), spanning Bhogi Pongal, Surya Pongal, Maatu Pongal, and Kaanum Pongal.",
                         "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 5,
+                        "question": "Which ancient rock-cut structural temple complex located in Mamallapuram was built during the reign of Narasimhavarman II (Rajasimha) of the Pallava dynasty?",
+                        "options": [
+                            "A) The Shore Temple",
+                            "B) Meenakshi Temple",
+                            "C) Kapaleeshwarar Temple",
+                            "D) Ramanathaswamy Temple"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "The Shore Temple complex at Mamallapuram was constructed under Pallava King Narasimhavarman II in the early 8th century, recognized as a UNESCO World Heritage Site celebrating Dravidian stone architecture.",
+                        "difficulty": "intermediate"
                     }
                 ])
 
             elif is_india:
-                return json.dumps([
+                return format_quiz_output([
                     {
                         "id": 1,
                         "question": "Which historical document serves as the supreme law of the Republic of India, adopted by the Constituent Assembly on November 26, 1949 and brought into effect on January 26, 1950?",
@@ -619,11 +647,24 @@ class LLMClient:
                         "correct_answer": "A",
                         "explanation": "The Indus Valley Civilization (notably Harappa and Mohenjo-Daro) was an advanced urban culture celebrated for grid-planned cities, hydraulic engineering, and standardized weights.",
                         "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 5,
+                        "question": "Which apex constitutional institution in India, headed by the Chief Election Commissioner and provided for under Article 324 of the Constitution, administers national and state election processes?",
+                        "options": [
+                            "A) The Election Commission of India",
+                            "B) The Union Public Service Commission",
+                            "C) The Finance Commission",
+                            "D) The Law Commission of India"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "Article 324 of the Constitution vests the superintendence, direction, and control of all elections to Parliament and State Legislatures in the Election Commission of India.",
+                        "difficulty": "intermediate"
                     }
                 ])
 
             elif is_national_bird:
-                return json.dumps([
+                return format_quiz_output([
                     {
                         "id": 1,
                         "question": "Which bird species was officially designated as the National Bird of India in 1963?",
@@ -675,11 +716,24 @@ class LLMClient:
                         "correct_answer": "A",
                         "explanation": "Sexual dimorphism is the condition where males and females of the same species exhibit distinctly different physical characteristics, such as the peacock's elaborate train versus the peahen's camouflage plumage.",
                         "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 5,
+                        "question": "In which year did the Government of India enact the Wildlife (Protection) Act, granting highest-tier Schedule I protection to the Indian Peafowl?",
+                        "options": [
+                            "A) 1972",
+                            "B) 1986",
+                            "C) 2002",
+                            "D) 1961"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "The Indian Wildlife (Protection) Act was passed in 1972, providing statutory protection against hunting and exploitation for India's National Bird under Schedule I.",
+                        "difficulty": "intermediate"
                     }
                 ])
 
             elif is_python:
-                return json.dumps([
+                return format_quiz_output([
                     {
                         "id": 1,
                         "question": "What is the primary role of the Global Interpreter Lock (GIL) in standard CPython implementation?",
@@ -731,11 +785,24 @@ class LLMClient:
                         "correct_answer": "A",
                         "explanation": "Generators yield values one at a time via the iterator protocol, maintaining state between yields while consuming constant O(1) memory space.",
                         "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 5,
+                        "question": "What is the primary architectural purpose of defining '__slots__' in a custom Python class?",
+                        "options": [
+                            "A) Preventing the creation of an internal '__dict__' per instance, substantially optimizing memory usage",
+                            "B) Enabling automatic multi-threading across CPU cores",
+                            "C) Compiling the Python class directly to machine assembly",
+                            "D) Restricting method overriding in child subclasses"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "Using __slots__ tells Python not to use a dynamic __dict__ for instance attributes, drastically reducing memory overhead when creating large numbers of objects.",
+                        "difficulty": "intermediate"
                     }
                 ])
 
             elif is_dbms:
-                return json.dumps([
+                return format_quiz_output([
                     {
                         "id": 1,
                         "question": "Why are B+ Trees predominantly preferred over standard B-Trees for database indexing on disk storage?",
@@ -787,11 +854,24 @@ class LLMClient:
                         "correct_answer": "A",
                         "explanation": "Hash indexes map keys to buckets non-sequentially via hash functions, providing O(1) equality searches but unable to evaluate range inequalities (<, >, BETWEEN).",
                         "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 5,
+                        "question": "In the relational database ACID transaction model, what property does 'Isolation' guarantee?",
+                        "options": [
+                            "A) Concurrent transaction execution produces results identical to serial execution without intermediate state exposure",
+                            "B) Table data is written to magnetic disk permanently before execution",
+                            "C) All primary keys automatically create B+ Tree clustered indexes",
+                            "D) Read queries never lock database table rows"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "Isolation guarantees that the intermediate state of concurrent transactions is isolated from one another, preventing dirty reads and concurrency anomalies.",
+                        "difficulty": "intermediate"
                     }
                 ])
 
             elif is_gpu:
-                return json.dumps([
+                return format_quiz_output([
                     {
                         "id": 1,
                         "question": "What is the primary architectural role of CUDA cores in modern GPU computing?",
@@ -843,11 +923,24 @@ class LLMClient:
                         "correct_answer": "A",
                         "explanation": "NVIDIA GPU SMs execute instructions using the SIMT architecture, where groups of 32 threads (a warp) execute the same instruction in lockstep across parallel arithmetic lanes.",
                         "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 5,
+                        "question": "What performance degradation occurs when conditional branching (if/else) causes 'Branch Divergence' within a GPU warp?",
+                        "options": [
+                            "A) Divergent execution paths are serialized across warp threads, substantially reducing SIMT arithmetic efficiency",
+                            "B) The GPU kernel immediately raises an unrecoverable hardware exception",
+                            "C) The host CPU takes over arithmetic execution for that warp",
+                            "D) The GPU driver forces a device reboot"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "In NVIDIA's SIMT model, when threads within a 32-thread warp take different branch paths, the GPU serializes execution of each path while disabling inactive threads, degrading parallel throughput.",
+                        "difficulty": "intermediate"
                     }
                 ])
 
             elif is_ml:
-                return json.dumps([
+                return format_quiz_output([
                     {
                         "id": 1,
                         "question": "What is the defining characteristic of Supervised Learning in machine learning?",
@@ -899,11 +992,24 @@ class LLMClient:
                         "correct_answer": "A",
                         "explanation": "Gradient Descent calculates the partial derivatives of the loss function with respect to model parameters and steps in the opposite direction to minimize error.",
                         "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 5,
+                        "question": "In machine learning pipelines, why is a separate Validation set maintained distinct from the Training and Test datasets?",
+                        "options": [
+                            "A) Tuning model hyperparameters and monitoring overfitting without leaking information from the unseen final test set",
+                            "B) Computing backpropagation gradient updates to weights",
+                            "C) Generating final production evaluation benchmark metrics",
+                            "D) Increasing the number of training examples"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "The validation dataset is used to evaluate candidate models and tune hyperparameters (e.g. learning rate, regularization) while preserving the test dataset as an unbiased evaluation benchmark.",
+                        "difficulty": "intermediate"
                     }
                 ])
 
             elif is_os:
-                return json.dumps([
+                return format_quiz_output([
                     {
                         "id": 1,
                         "question": "Which condition is NOT one of Coffman's four necessary conditions for a system deadlock to occur?",
@@ -955,12 +1061,25 @@ class LLMClient:
                         "correct_answer": "A",
                         "explanation": "Counting semaphores manage finite pools of multiple identical resource units (initialized to N), while binary semaphores provide mutual exclusion over a single resource (0 or 1).",
                         "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 5,
+                        "question": "What synchronization protocol is employed by real-time operating systems to mitigate 'Priority Inversion'?",
+                        "options": [
+                            "A) Priority Inheritance, where a lower-priority task holding a mutex temporarily inherits the priority of a blocked higher-priority task",
+                            "B) Terminating the lower-priority task immediately",
+                            "C) Disabling hardware timer interrupts permanently",
+                            "D) Replacing all mutex locks with non-blocking spinlocks"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "Priority Inheritance boosts the execution priority of the lock-holding lower-priority task to that of the highest-priority task waiting for the lock, allowing it to complete and release the resource quickly.",
+                        "difficulty": "intermediate"
                     }
                 ])
 
             else:
                 # Clean, general academic quiz testing core concepts of clean_topic
-                return json.dumps([
+                return format_quiz_output([
                     {
                         "id": 1,
                         "question": f"What is the foundational definition and core principle of {clean_topic}?",
@@ -1011,6 +1130,19 @@ class LLMClient:
                         ],
                         "correct_answer": "A",
                         "explanation": f"{clean_topic} holds broad academic and practical significance by structuring knowledge and informing modern developments.",
+                        "difficulty": "intermediate"
+                    },
+                    {
+                        "id": 5,
+                        "question": f"When solving complex problems within {clean_topic}, why is establishing clear boundary conditions and error tolerances necessary?",
+                        "options": [
+                            "A) It prevents catastrophic failures, ensures predictable behavior, and defines valid operational ranges",
+                            "B) It eliminates the need for empirical validation and testing",
+                            "C) It proves that theoretical assumptions are unconditionally universal",
+                            "D) It restricts solutions to non-functional speculative theory"
+                        ],
+                        "correct_answer": "A",
+                        "explanation": f"Establishing boundary conditions and tolerances ensures system safety, predictable execution, and operational reliability across valid domains in {clean_topic}.",
                         "difficulty": "intermediate"
                     }
                 ])

@@ -109,13 +109,21 @@ function parseMarkdownMCQs(content: string, difficulty: string): QuizQuestion[] 
  * Produces accurate, factually grounded MCQs tailored to the user's topic.
  * Never outputs generic filler or meaningless distractors.
  */
-function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'intermediate' | 'advanced'): QuizQuestion[] {
+function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'intermediate' | 'advanced', count: number = 4): QuizQuestion[] {
   const cleanTopic = topic.trim();
   const lower = cleanTopic.toLowerCase();
 
+  // Helper to slice and ensure sequential IDs
+  const formatList = (list: QuizQuestion[]): QuizQuestion[] => {
+    return list.slice(0, count).map((q, idx) => ({
+      ...q,
+      id: `q-${idx + 1}`,
+    }));
+  };
+
   // 1. India / Indian Polity / History / Geography
   if (/\b(india|indian|bharat|constitution of india|indian polity|indian history)\b/i.test(lower)) {
-    return [
+    return formatList([
       {
         id: 'q-1',
         question: 'Which historical document serves as the supreme law of the Republic of India, adopted by the Constituent Assembly on November 26, 1949 and brought into effect on January 26, 1950?',
@@ -164,12 +172,24 @@ function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'inte
         explanation: 'The Indus Valley Civilization (notably Harappa and Mohenjo-Daro) was an advanced urban culture celebrated for grid-planned cities, hydraulic engineering, and municipal drainage.',
         correct_index: 0,
       },
-    ];
+      {
+        id: 'q-5',
+        question: 'Which apex constitutional institution in India, established under Article 324 of the Constitution, is vested with the superintendence, direction, and control of elections?',
+        options: [
+          'The Election Commission of India',
+          'The Union Public Service Commission',
+          'The Finance Commission of India',
+          'The Law Commission of India',
+        ],
+        explanation: 'Article 324 of the Constitution vests the superintendence, direction, and control of all elections to Parliament and state legislatures in the Election Commission of India.',
+        correct_index: 0,
+      },
+    ]);
   }
 
   // 2. Tamil Nadu Heritage & Culture
   if (/\b(tamil nadu|chola|pallava|pandya|dravidian|thanjavur|brihadeeswarar|sangam|pongal)\b/i.test(lower)) {
-    return [
+    return formatList([
       {
         id: 'q-1',
         question: 'Which historic Hindu temple located in Thanjavur, Tamil Nadu was built by King Rajaraja Chola I and is renowned for its monumental Dravidian granite vimana tower?',
@@ -218,12 +238,24 @@ function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'inte
         explanation: 'Pongal is celebrated across four days (Bhogi, Surya Pongal, Maatu Pongal, Kaanum Pongal) to give thanks for agricultural abundance.',
         correct_index: 0,
       },
-    ];
+      {
+        id: 'q-5',
+        question: 'Which monumental 8th-century rock-cut temple complex in Mamallapuram was constructed during the reign of Pallava King Narasimhavarman II (Rajasimha)?',
+        options: [
+          'The Shore Temple',
+          'Meenakshi Temple',
+          'Kapaleeshwarar Temple',
+          'Ramanathaswamy Temple',
+        ],
+        explanation: 'The Shore Temple at Mamallapuram was built by the Pallava Dynasty in the early 8th century and is recognized as a UNESCO World Heritage Site.',
+        correct_index: 0,
+      },
+    ]);
   }
 
   // 3. National Bird / Indian Peafowl
   if (/\b(national bird|peacock|peafowl|pavo cristatus)\b/i.test(lower)) {
-    return [
+    return formatList([
       {
         id: 'q-1',
         question: 'Which bird species was officially designated as the National Bird of India in 1963?',
@@ -272,12 +304,24 @@ function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'inte
         explanation: 'Sexual dimorphism is the condition where males and females of the same species exhibit distinctly different physical characteristics.',
         correct_index: 0,
       },
-    ];
+      {
+        id: 'q-5',
+        question: 'In which year was statutory legal protection under Schedule I granted to the Indian Peafowl through the Indian Wildlife (Protection) Act?',
+        options: [
+          '1972',
+          '1986',
+          '2002',
+          '1961',
+        ],
+        explanation: 'The Wildlife (Protection) Act of 1972 placed the Indian Peafowl under Schedule I, providing absolute legal protection against hunting and trade.',
+        correct_index: 0,
+      },
+    ]);
   }
 
   // 4. Python Programming
   if (/\b(python|cpython|gil|pydantic|fastapi)\b/i.test(lower)) {
-    return [
+    return formatList([
       {
         id: 'q-1',
         question: 'What is the primary role of the Global Interpreter Lock (GIL) in standard CPython implementation?',
@@ -326,12 +370,24 @@ function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'inte
         explanation: 'Generators evaluate lazily via the iterator protocol, retaining only the current item in memory and achieving O(1) space complexity.',
         correct_index: 0,
       },
-    ];
+      {
+        id: 'q-5',
+        question: 'What is the primary architectural purpose of defining "__slots__" in a custom Python class?',
+        options: [
+          'Preventing the dynamic creation of an instance __dict__, substantially optimizing memory consumption',
+          'Enabling automatic parallel execution across CPU threads',
+          'Compiling the Python class directly to machine bytecode',
+          'Restricting inheritance of private methods in child classes',
+        ],
+        explanation: 'Defining __slots__ instructs CPython to allocate static attribute storage rather than a dynamic __dict__, significantly reducing RAM usage for large numbers of instances.',
+        correct_index: 0,
+      },
+    ]);
   }
 
   // 5. Database Systems & Indexing
   if (/\b(database|indexing|b-tree|b\+ tree|sql|acid|rdbms|dbms)\b/i.test(lower)) {
-    return [
+    return formatList([
       {
         id: 'q-1',
         question: 'Why are B+ Trees predominantly preferred over standard binary search trees for disk-based relational database indexes?',
@@ -380,12 +436,24 @@ function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'inte
         explanation: 'Hash indexes distribute keys non-sequentially via hash functions, providing O(1) equality searches but unable to evaluate range inequalities (<, >, BETWEEN).',
         correct_index: 0,
       },
-    ];
+      {
+        id: 'q-5',
+        question: 'In the relational database ACID transaction model, what guarantee is provided by "Isolation"?',
+        options: [
+          'Concurrent transaction execution produces state changes equivalent to serial execution without intermediate state exposure',
+          'Committed transactions can never be modified on disk',
+          'All database queries automatically utilize clustered indexes',
+          'Read transactions never require CPU memory buffers',
+        ],
+        explanation: 'Isolation ensures that concurrent transactions execute independently without reading uncommitted or intermediate states of other transactions.',
+        correct_index: 0,
+      },
+    ]);
   }
 
   // 6. Operating Systems
   if (/\b(operating system|operating systems|deadlock|process scheduling|semaphore|virtual memory|paging|context switch)\b/i.test(lower)) {
-    return [
+    return formatList([
       {
         id: 'q-1',
         question: "Which condition is NOT one of Coffman's four necessary conditions for a system deadlock to occur?",
@@ -434,12 +502,24 @@ function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'inte
         explanation: 'Counting semaphores manage finite pools of multiple identical resource units (initialized to N), while binary semaphores provide mutual exclusion over a single resource (0 or 1).',
         correct_index: 0,
       },
-    ];
+      {
+        id: 'q-5',
+        question: 'What synchronization protocol is employed by operating systems to mitigate "Priority Inversion"?',
+        options: [
+          'Priority Inheritance, where a lower-priority task holding a mutex temporarily inherits the priority of a blocked higher-priority task',
+          'Immediately terminating the lower-priority task',
+          'Disabling hardware timer interrupts permanently',
+          'Converting all mutex locks to non-blocking spinlocks',
+        ],
+        explanation: 'Priority Inheritance temporarily boosts the priority of the task holding the mutex to that of the highest-priority task waiting for it, allowing it to release the resource quickly.',
+        correct_index: 0,
+      },
+    ]);
   }
 
   // 7. GPU Architecture
   if (/\b(gpu|cuda|tensor core|vram|simt|streaming multiprocessor)\b/i.test(lower)) {
-    return [
+    return formatList([
       {
         id: 'q-1',
         question: 'What is the primary architectural role of CUDA cores in modern GPU computing?',
@@ -488,12 +568,24 @@ function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'inte
         explanation: 'NVIDIA GPU SMs execute using the SIMT model, where warps of 32 threads execute the same instruction in lockstep across parallel lanes.',
         correct_index: 0,
       },
-    ];
+      {
+        id: 'q-5',
+        question: 'What performance penalty occurs when conditional branching causes "Branch Divergence" within a GPU warp?',
+        options: [
+          'Threads evaluating different branches are serialized, substantially reducing parallel SIMT arithmetic throughput',
+          'The GPU kernel crashes with an unhandled hardware interrupt',
+          'The host CPU takes over arithmetic execution for that warp',
+          'The GPU device driver forces an immediate context reset',
+        ],
+        explanation: 'Because warps execute in lockstep under SIMT, branch divergence serializes execution of divergent paths, leaving threads on unselected branches idle and reducing performance.',
+        correct_index: 0,
+      },
+    ]);
   }
 
   // 8. Machine Learning
   if (/\b(machine learning|deep learning|supervised learning|unsupervised learning|neural network|gradient descent|overfitting)\b/i.test(lower)) {
-    return [
+    return formatList([
       {
         id: 'q-1',
         question: 'What is the defining characteristic of Supervised Learning in machine learning?',
@@ -542,11 +634,23 @@ function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'inte
         explanation: 'Gradient Descent calculates partial derivatives of the loss function with respect to weights and steps in the opposite direction to minimize loss.',
         correct_index: 0,
       },
-    ];
+      {
+        id: 'q-5',
+        question: 'In machine learning workflows, why is a separate Validation set maintained distinct from Training and Test sets?',
+        options: [
+          'Tuning model hyperparameters and monitoring overfitting without leaking information from the unseen final test set',
+          'Computing backpropagation gradient updates to weights',
+          'Generating final production evaluation benchmark metrics',
+          'Increasing the total volume of training examples',
+        ],
+        explanation: 'The validation set evaluates generalization performance and guides hyperparameter selection without compromising the final unbiased evaluation on the test set.',
+        correct_index: 0,
+      },
+    ]);
   }
 
   // 9. Universal Educational Academic Fallback (for any other concept)
-  return [
+  return formatList([
     {
       id: 'q-1',
       question: `What is the foundational definition and core principle of ${cleanTopic}?`,
@@ -595,7 +699,19 @@ function getTopicAwareQuizFallback(topic: string, difficulty: 'beginner' | 'inte
       explanation: `${cleanTopic} is essential because it structures knowledge, optimizes processes, and enables effective real-world problem-solving.`,
       correct_index: 0,
     },
-  ];
+    {
+      id: 'q-5',
+      question: `When solving complex problems within ${cleanTopic}, why is establishing clear boundary conditions and error tolerances necessary?`,
+      options: [
+        `It prevents catastrophic failures, ensures predictable behavior, and defines valid operational ranges`,
+        `It eliminates the need for empirical validation and testing`,
+        `It proves that theoretical assumptions are unconditionally universal`,
+        `It restricts solutions to non-functional speculative theory`,
+      ],
+      explanation: `Establishing boundary conditions and tolerances ensures system safety, predictable execution, and operational reliability across valid domains in ${cleanTopic}.`,
+      correct_index: 0,
+    },
+  ]);
 }
 
 export const quizService = {
@@ -606,7 +722,8 @@ export const quizService = {
     documentIds?: string[];
     questionCount?: number;
   }): Promise<Quiz> {
-    const prompt = `Generate a ${params.difficulty} difficulty quiz with ${params.questionCount || 4} multiple choice questions on the topic: "${params.topic}". Provide 4 clear options (A, B, C, D) for each question, the correct answer, and an in-depth pedagogical explanation.`;
+    const targetCount = params.questionCount && params.questionCount > 0 ? params.questionCount : 4;
+    const prompt = `Generate a ${params.difficulty} difficulty quiz with ${targetCount} multiple choice questions on the topic: "${params.topic}". Provide 4 clear options (A, B, C, D) for each question, the correct answer, and an in-depth pedagogical explanation.`;
 
     const res = await chatService.sendMessage({
       session_id: params.sessionId,
@@ -614,6 +731,7 @@ export const quizService = {
       intent: 'quiz',
       difficulty: params.difficulty,
       document_ids: params.documentIds,
+      question_count: targetCount,
     });
 
     const assistantMsg = res.assistant_message;
@@ -649,8 +767,30 @@ export const quizService = {
 
     // 4. Topic-aware, pedagogically authentic fallback (never generic filler!)
     if (questions.length === 0) {
-      questions = getTopicAwareQuizFallback(params.topic, params.difficulty);
+      questions = getTopicAwareQuizFallback(params.topic, params.difficulty, targetCount);
     }
+
+    // 5. If fewer questions than requested were obtained, supplement from topic fallback
+    if (questions.length < targetCount) {
+      const fallbackList = getTopicAwareQuizFallback(params.topic, params.difficulty, targetCount);
+      for (const fq of fallbackList) {
+        if (questions.length >= targetCount) break;
+        if (!questions.some((q) => q.question.toLowerCase().trim() === fq.question.toLowerCase().trim())) {
+          questions.push(fq);
+        }
+      }
+    }
+
+    // 6. Strictly enforce requested question count
+    if (questions.length > targetCount) {
+      questions = questions.slice(0, targetCount);
+    }
+
+    // 7. Ensure sequential unique IDs
+    questions = questions.map((q, idx) => ({
+      ...q,
+      id: `q-${idx + 1}`,
+    }));
 
     const quiz: Quiz = {
       id: `quiz-${Date.now()}`,
