@@ -197,10 +197,6 @@ AisynEdu/
 │   ├── package.json
 │   └── ...
 │
-├── docs/
-│   ├── demo
-│      ├── aisynedu-demo.mp4
-│
 ├── docker-compose.yml
 ├── docker-compose.prod.yml
 ├── README.md
