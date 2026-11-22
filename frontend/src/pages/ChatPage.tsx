@@ -32,7 +32,6 @@ export const ChatPage: React.FC = () => {
   const requestedSessionId = searchParams.get('session');
   const requestedDocId = searchParams.get('doc');
   const requestedQuery = searchParams.get('query');
-  const isNewRequested = searchParams.get('new') === '1';
 
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSession, setActiveSession] = useState<ChatSession | null>(null);
@@ -49,6 +48,8 @@ export const ChatPage: React.FC = () => {
   const [newSessionTitle, setNewSessionTitle] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isInitializedRef = useRef(false);
+  const lastNewChatTimeRef = useRef(0);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -57,6 +58,58 @@ export const ChatPage: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isSending]);
+
+  const startNewChat = async () => {
+    const now = Date.now();
+    if (now - lastNewChatTimeRef.current < 500) {
+      return;
+    }
+    lastNewChatTimeRef.current = now;
+
+    // Reset messages, active session context, attachments, and sending state immediately
+    setMessages([]);
+    setActiveSession(null);
+    setSelectedDocIds([]);
+    setSelectedImage(null);
+    setIsSending(false);
+
+    try {
+      setIsLoading(true);
+      const newSession = await chatService.createSession(
+        'General Studies',
+        'Quick Study Session',
+        []
+      );
+      setSessions((prev) => [newSession, ...prev.filter((s) => s.id !== newSession.id)]);
+      setActiveSession(newSession);
+      setSearchParams({ session: newSession.id }, { replace: true });
+    } catch (err) {
+      console.error('Failed to create new session:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Listen for the custom new-chat event dispatched by Navbar
+  useEffect(() => {
+    const handleNewChatEvent = () => {
+      startNewChat();
+    };
+
+    window.addEventListener('aisynedu:new-chat', handleNewChatEvent);
+    return () => {
+      window.removeEventListener('aisynedu:new-chat', handleNewChatEvent);
+    };
+  }, []);
+
+  // Listen for route parameter updates (?new=...)
+  useEffect(() => {
+    if (!isInitializedRef.current) return;
+    const newParam = searchParams.get('new');
+    if (newParam) {
+      startNewChat();
+    }
+  }, [searchParams]);
 
   // Load user sessions and documents on mount
   useEffect(() => {
@@ -77,9 +130,9 @@ export const ChatPage: React.FC = () => {
         }
 
         // Determine active session
-        if (isNewRequested || loadedSessions.length === 0) {
-          // Auto create or prompt new session
-          handleCreateSession('General Studies', 'Quick Study Session');
+        const newParam = searchParams.get('new');
+        if (newParam || loadedSessions.length === 0) {
+          await startNewChat();
         } else if (requestedSessionId) {
           const match = loadedSessions.find((s) => s.id === requestedSessionId);
           if (match) {
@@ -92,6 +145,7 @@ export const ChatPage: React.FC = () => {
         }
       } finally {
         setIsLoading(false);
+        isInitializedRef.current = true;
       }
     };
 
@@ -108,13 +162,13 @@ export const ChatPage: React.FC = () => {
         llmProvider: 'gemini',
       });
       // Clear query param
-      setSearchParams({ session: activeSession.id });
+      setSearchParams({ session: activeSession.id }, { replace: true });
     }
   }, [requestedQuery, activeSession]);
 
   const selectSession = async (session: ChatSession) => {
     setActiveSession(session);
-    setSearchParams({ session: session.id });
+    setSearchParams({ session: session.id }, { replace: true });
     try {
       const history = await chatService.getSessionMessages(session.id);
       setMessages(history);
@@ -136,7 +190,7 @@ export const ChatPage: React.FC = () => {
       setSessions((prev) => [newSession, ...prev]);
       setActiveSession(newSession);
       setMessages([]);
-      setSearchParams({ session: newSession.id });
+      setSearchParams({ session: newSession.id }, { replace: true });
       setIsNewSessionModalOpen(false);
       setNewSessionTitle('');
     } catch (err) {
@@ -151,7 +205,22 @@ export const ChatPage: React.FC = () => {
     llmProvider: 'gemini' | 'ollama';
     imageId?: string;
   }) => {
-    if (!activeSession) return;
+    let currentSession = activeSession;
+    if (!currentSession) {
+      try {
+        currentSession = await chatService.createSession(
+          'General Studies',
+          'Quick Study Session',
+          selectedDocIds
+        );
+        setSessions((prev) => [currentSession!, ...prev.filter((s) => s.id !== currentSession!.id)]);
+        setActiveSession(currentSession);
+        setSearchParams({ session: currentSession.id }, { replace: true });
+      } catch (err) {
+        console.error('Failed to create session for message:', err);
+        return;
+      }
+    }
 
     // Optimistically add user message
     const tempUserMsg: ChatMessageType = {
@@ -203,7 +272,7 @@ export const ChatPage: React.FC = () => {
         try {
           await chatService.streamMessage(
             {
-              session_id: activeSession.id,
+              session_id: currentSession.id,
               content: params.message,
               intent: params.intent,
               difficulty: params.difficulty,
@@ -252,7 +321,7 @@ export const ChatPage: React.FC = () => {
         } catch (streamErr) {
           // Graceful fallback to standard REST request if streaming fails
           const response = await chatService.sendMessage({
-            session_id: activeSession.id,
+            session_id: currentSession.id,
             content: params.message,
             intent: params.intent,
             difficulty: params.difficulty,

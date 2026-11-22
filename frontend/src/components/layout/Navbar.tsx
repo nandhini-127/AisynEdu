@@ -18,6 +18,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
+  const handleNewChat = () => {
+    window.dispatchEvent(new CustomEvent('aisynedu:new-chat'));
+    navigate(`/chat?new=${Date.now()}`);
+  };
+
   return (
     <header className="h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6">
       <div className="flex items-center gap-3">
@@ -66,7 +71,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           size="sm"
           variant="primary"
           leftIcon={<Plus className="w-4 h-4" />}
-          onClick={() => navigate('/chat?new=1')}
+          onClick={handleNewChat}
         >
           New Chat
         </Button>
