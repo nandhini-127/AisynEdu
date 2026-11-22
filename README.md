@@ -8,7 +8,7 @@ The platform provides an interactive environment where students can ask question
 
 **Live Application:** https://aisynedu.vercel.app  
 **GitHub Repository:** https://github.com/nandhini-127/AisynEdu  
-**Demo Video:** [Add your demonstration video link]
+**Demo Video:** https://rb.gy/fkdqe1
 
 ---
 
@@ -79,8 +79,6 @@ The platform is designed to provide context-aware responses, support document-ba
 - Input validation.
 - Error handling.
 - Controlled AI generation and fallback handling.
-
-*Feature descriptions should reflect the capabilities verified in the deployed application.*
 
 ---
 
@@ -446,7 +444,7 @@ A video demonstration will showcase:
 - Docker-based application execution.
 - Cloud deployment.
 
-**Demo Video:** [Insert YouTube or Google Drive link]
+**Demo Video:** https://rb.gy/fkdqe1
 
 ---
 
